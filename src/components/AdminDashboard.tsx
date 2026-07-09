@@ -1,11 +1,22 @@
 import React, { useState } from 'react';
 import { 
   Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
-  ChevronRight, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer 
+  ChevronRight, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
+  Calendar, Clock, Camera, Search, RefreshCw, AlertCircle
 } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian } from '../types';
+
+interface AbsenMusyrif {
+  id: string;
+  musyrifId: string;
+  musyrifNama: string;
+  tanggal: string; // YYYY-MM-DD
+  waktu: string; // HH:mm:ss
+  hari: string; // e.g. Senin, Selasa, dll
+  fotoUrl: string; // base64 string
+}
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -28,7 +39,7 @@ export default function AdminDashboard({
   adminPass,
   refreshData
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan'>('kelas');
+  const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan' | 'absen'>('kelas');
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState({ text: '', type: 'success' });
 
@@ -73,6 +84,72 @@ export default function AdminDashboard({
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmNewPass, setConfirmNewPass] = useState('');
+
+  // 7. Absen States
+  const [attendances, setAttendances] = useState<AbsenMusyrif[]>([]);
+  const [absenSearch, setAbsenSearch] = useState('');
+  const [absenStartDateFilter, setAbsenStartDateFilter] = useState('');
+  const [absenEndDateFilter, setAbsenEndDateFilter] = useState('');
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [loadingAbsen, setLoadingAbsen] = useState(false);
+
+  // Sync attendance logs when the administrator views the 'absen' tab
+  React.useEffect(() => {
+    if (activeTab !== 'absen') return;
+
+    setLoadingAbsen(true);
+    const q = collection(db, 'absen_musyrif');
+
+    const unsub = onSnapshot(q, (snap) => {
+      const list: AbsenMusyrif[] = [];
+      snap.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as AbsenMusyrif);
+      });
+      // Sort in memory by newest first (tanggal desc, then waktu desc)
+      list.sort((a, b) => {
+        const dateTimeA = `${a.tanggal}T${a.waktu}`;
+        const dateTimeB = `${b.tanggal}T${b.waktu}`;
+        return dateTimeB.localeCompare(dateTimeA);
+      });
+      setAttendances(list);
+      setLoadingAbsen(false);
+    }, (err) => {
+      console.error('Error fetching admin attendances:', err);
+      setLoadingAbsen(false);
+    });
+
+    return () => unsub();
+  }, [activeTab]);
+
+  const handleDeleteAbsen = async (id: string) => {
+    const isConfirmed = window.confirm('Apakah Anda yakin ingin menghapus catatan absen ini secara permanen?');
+    if (!isConfirmed) return;
+
+    setIsSaving(true);
+    try {
+      await deleteDoc(doc(db, 'absen_musyrif', id));
+      showFeedback('Catatan absen berhasil dihapus!');
+    } catch (err: any) {
+      showFeedback('Gagal menghapus catatan absen: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const filteredAttendances = attendances.filter(absen => {
+    const nameMatch = (absen.musyrifNama || '').toLowerCase().includes(absenSearch.toLowerCase());
+    
+    let dateMatch = true;
+    if (absenStartDateFilter && absenEndDateFilter) {
+      dateMatch = absen.tanggal >= absenStartDateFilter && absen.tanggal <= absenEndDateFilter;
+    } else if (absenStartDateFilter) {
+      dateMatch = absen.tanggal >= absenStartDateFilter;
+    } else if (absenEndDateFilter) {
+      dateMatch = absen.tanggal <= absenEndDateFilter;
+    }
+    
+    return nameMatch && dateMatch;
+  });
 
   // Helpers
   const showFeedback = (text: string, type: 'success' | 'danger' = 'success') => {
@@ -807,6 +884,7 @@ export default function AdminDashboard({
               { id: 'siswa', label: 'Data Siswa', icon: Users },
               { id: 'pengajar', label: 'Data Pengajar', icon: UserCheck },
               { id: 'halaqoh', label: 'Data Halaqoh', icon: BookMarked },
+              { id: 'absen', label: 'Kelola Absen', icon: Calendar },
               { id: 'laporan', label: 'Laporan Tahfidz', icon: FileText },
               { id: 'pengaturan', label: 'Pengaturan', icon: Settings }
             ].map(tab => {
@@ -1071,7 +1149,6 @@ export default function AdminDashboard({
                       <th className="py-3.5 px-4 w-12">NO</th>
                       <th className="py-3.5 px-4">NIM</th>
                       <th className="py-3.5 px-4">NAMA PENGAJAR</th>
-                      <th className="py-3.5 px-4">HALAQOH AMPUAN</th>
                       <th className="py-3.5 px-4">USERNAME</th>
                       <th className="py-3.5 px-4">PASSWORD</th>
                       <th className="py-3.5 px-4 text-right w-24">OPSI</th>
@@ -1080,7 +1157,7 @@ export default function AdminDashboard({
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                     {musyrifs.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">Belum ada pengajar terdaftar.</td>
+                        <td colSpan={6} className="py-8 text-center text-slate-400 font-medium">Belum ada pengajar terdaftar.</td>
                       </tr>
                     ) : (
                       musyrifs.map((m, i) => (
@@ -1088,9 +1165,6 @@ export default function AdminDashboard({
                           <td className="py-3 px-4 font-mono font-bold text-slate-400">{i + 1}</td>
                           <td className="py-3 px-4 font-mono font-semibold text-slate-800">{m.nim}</td>
                           <td className="py-3 px-4 font-bold text-slate-900">{m.nama}</td>
-                          <td className="py-3 px-4 font-semibold text-emerald-800">
-                            {m.halaqohNama || 'Belum Ditentukan'}
-                          </td>
                           <td className="py-3 px-4 font-mono">{m.username}</td>
                           <td className="py-3 px-4 font-mono text-slate-400 select-all font-bold group hover:text-slate-700 transition" title="Klik untuk menyalin">
                             ⚡ {m.password || '●●●●●●'}
@@ -1344,6 +1418,308 @@ export default function AdminDashboard({
               ) : (
                 <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-150 text-xs text-slate-400">
                   Silahkan pilih salah satu Halaqoh Qur'an di atas untuk melihat laporan.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5.5: KELOLA ABSEN */}
+          {activeTab === 'absen' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="text-lg font-extrabold text-slate-800">Kelola Absen Musyrif</h3>
+                  <p className="text-xs text-slate-500">Monitor daftar kehadiran, hari, tanggal, waktu, dan verifikasi foto selfie para Musyrif</p>
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 items-end">
+                <div className="relative">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Nama Musyrif</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                      <Search className="w-4 h-4 text-slate-400" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Cari nama musyrif..."
+                      value={absenSearch}
+                      onChange={(e) => setAbsenSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tanggal Mulai</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                      <Calendar className="w-4 h-4 text-slate-400" />
+                    </span>
+                    <input
+                      type="date"
+                      value={absenStartDateFilter}
+                      onChange={(e) => setAbsenStartDateFilter(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tanggal Selesai</label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                      <Calendar className="w-4 h-4 text-slate-400" />
+                    </span>
+                    <input
+                      type="date"
+                      value={absenEndDateFilter}
+                      onChange={(e) => setAbsenEndDateFilter(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none font-medium text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setAbsenSearch('');
+                    setAbsenStartDateFilter('');
+                    setAbsenEndDateFilter('');
+                  }}
+                  className="w-full h-9 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center"
+                >
+                  Reset Filter
+                </button>
+              </div>
+
+              {/* Attendance Table / Content */}
+              {loadingAbsen ? (
+                <div className="p-12 text-center text-xs text-slate-400 space-y-2">
+                  <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-600" />
+                  <p className="font-semibold">Memuat catatan kehadiran...</p>
+                </div>
+              ) : filteredAttendances.length === 0 ? (
+                <div className="p-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl space-y-2">
+                  <AlertCircle className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="font-semibold">Tidak ditemukan catatan kehadiran musyrif.</p>
+                  <p className="text-[10px] text-slate-400">Silakan coba sesuaikan filter pencarian atau tanggal.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Desktop View Table */}
+                  <div className="hidden md:block overflow-x-auto border border-slate-100 rounded-2xl">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-600 border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider">
+                          <th className="py-3.5 px-4 w-12 text-center">NO</th>
+                          <th className="py-3.5 px-4">NAMA MUSYRIF</th>
+                          <th className="py-3.5 px-4">HALAQOH AMPUAN</th>
+                          <th className="py-3.5 px-4 text-center">HARI & TANGGAL</th>
+                          <th className="py-3.5 px-4 text-center">WAKTU</th>
+                          <th className="py-3.5 px-4 text-center w-28">FOTO SELFIE</th>
+                          <th className="py-3.5 px-4 text-center">STATUS</th>
+                          <th className="py-3.5 px-4 text-right w-20">AKSI</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                        {filteredAttendances.map((absen, idx) => {
+                          const matchedMusyrif = musyrifs.find(m => m.id === absen.musyrifId);
+                          let displayDate = absen.tanggal;
+                          try {
+                            displayDate = new Date(absen.tanggal).toLocaleDateString('id-ID', {
+                              day: 'numeric',
+                              month: 'long',
+                              year: 'numeric'
+                            });
+                          } catch (_) {}
+                          
+                          return (
+                            <tr key={absen.id} className="hover:bg-slate-50/50">
+                              <td className="py-3 px-4 font-mono font-bold text-slate-400 text-center">{idx + 1}</td>
+                              <td className="py-3 px-4 font-extrabold text-slate-900 uppercase">
+                                {absen.musyrifNama}
+                                {matchedMusyrif && (
+                                  <span className="block text-[10px] font-mono font-medium text-slate-400 lowercase">
+                                    @{matchedMusyrif.username}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-indigo-700 bg-indigo-50 border border-indigo-150 px-2.5 py-0.5 rounded-full text-[11px]">
+                                  {matchedMusyrif?.halaqohNama || 'N/A'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-center font-medium">
+                                {absen.hari}, {displayDate}
+                              </td>
+                              <td className="py-3 px-4 text-center font-mono font-semibold text-slate-600">
+                                {absen.waktu} WIB
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                {absen.fotoUrl ? (
+                                  <button
+                                    onClick={() => setPreviewPhoto(absen.fotoUrl)}
+                                    className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 mx-auto cursor-pointer group hover:border-emerald-500 transition shadow-xs block"
+                                  >
+                                    <img 
+                                      src={absen.fotoUrl} 
+                                      alt="Selfie" 
+                                      className="w-full h-full object-cover group-hover:scale-110 transition duration-200" 
+                                      referrerPolicy="no-referrer"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                                      <Camera className="w-4 h-4 text-white" />
+                                    </div>
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic">No Photo</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 border border-emerald-100 text-emerald-700">
+                                  ● HADIR
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <button
+                                  onClick={() => handleDeleteAbsen(absen.id)}
+                                  className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
+                                  title="Hapus Catatan Absen"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile View Card Grid */}
+                  <div className="md:hidden grid grid-cols-1 gap-4">
+                    {filteredAttendances.map((absen) => {
+                      const matchedMusyrif = musyrifs.find(m => m.id === absen.musyrifId);
+                      let displayDate = absen.tanggal;
+                      try {
+                        displayDate = new Date(absen.tanggal).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric'
+                        });
+                      } catch (_) {}
+
+                      return (
+                        <div key={absen.id} className="bg-slate-50 border border-slate-150 p-4 rounded-2xl flex gap-3 relative">
+                          {absen.fotoUrl && (
+                            <button
+                              onClick={() => setPreviewPhoto(absen.fotoUrl)}
+                              className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0 cursor-pointer shadow-xs relative group"
+                            >
+                              <img 
+                                src={absen.fotoUrl} 
+                                alt="Selfie Mobile" 
+                                className="w-full h-full object-cover" 
+                                referrerPolicy="no-referrer"
+                              />
+                            </button>
+                          )}
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-black text-slate-900 uppercase truncate">
+                                {absen.musyrifNama}
+                              </h4>
+                              <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-black bg-emerald-50 text-emerald-700">
+                                HADIR
+                              </span>
+                            </div>
+                            <p className="text-[10px] font-semibold text-indigo-700">
+                              Halaqoh: {matchedMusyrif?.halaqohNama || 'N/A'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-medium">
+                              Tanggal: {absen.hari}, {displayDate}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-mono font-bold">
+                              Waktu: {absen.waktu} WIB
+                            </p>
+                          </div>
+                          
+                          <button
+                            onClick={() => handleDeleteAbsen(absen.id)}
+                            className="absolute bottom-4 right-4 p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
+                            title="Hapus Absen"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Lightbox Selfie Modal */}
+              {previewPhoto && (
+                <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-xs">
+                  <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-100 flex flex-col relative animate-none">
+                    <button
+                      onClick={() => setPreviewPhoto(null)}
+                      className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-black/65 hover:bg-black/85 flex items-center justify-center text-white cursor-pointer transition font-bold text-xs"
+                    >
+                      ✕
+                    </button>
+                    <div className="bg-emerald-800 text-white p-5 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                        <Camera className="w-5 h-5 text-emerald-100" />
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-extrabold uppercase">Foto Absensi Selfie</h3>
+                        <p className="text-[10px] text-emerald-200 mt-0.5">Verifikasi Kehadiran Musyrif</p>
+                      </div>
+                    </div>
+                    <div className="p-4 bg-slate-950 aspect-square flex items-center justify-center">
+                      <img 
+                        src={previewPhoto} 
+                        alt="Foto Absen Selfie" 
+                        className="max-h-[50vh] max-w-full object-contain rounded-2xl"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <div className="p-4 bg-slate-50 border-t border-slate-100">
+                      {(() => {
+                        const matchedAbsen = attendances.find(a => a.fotoUrl === previewPhoto);
+                        if (!matchedAbsen) return null;
+                        let displayDateLong = matchedAbsen.tanggal;
+                        try {
+                          displayDateLong = new Date(matchedAbsen.tanggal).toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric'
+                          });
+                        } catch (_) {}
+
+                        return (
+                          <div className="text-xs space-y-1.5">
+                            <p className="text-slate-400 font-bold text-[9px] uppercase tracking-wider">Identitas Musyrif</p>
+                            <p className="font-extrabold text-slate-900 text-sm uppercase">{matchedAbsen.musyrifNama}</p>
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-slate-600">
+                              <div>
+                                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Hari & Tanggal</span>
+                                <span className="font-semibold text-slate-800">
+                                  {matchedAbsen.hari}, {displayDateLong}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Waktu Absen</span>
+                                <span className="font-semibold text-slate-800">{matchedAbsen.waktu} WIB</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1632,19 +2008,7 @@ export default function AdminDashboard({
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-600 block">Halaqoh Pengampu (Opsional)</label>
-                    <select
-                      value={musyrifHalaqohId}
-                      onChange={(e) => setMusyrifHalaqohId(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white focus:outline-none transition"
-                    >
-                      <option value="">-- Pilih Halaqoh --</option>
-                      {halaqohs.map(h => (
-                        <option key={h.id} value={h.id}>{h.nama}</option>
-                      ))}
-                    </select>
-                  </div>
+
 
                   <div className="grid grid-cols-2 gap-3 pb-2 border-t border-slate-100 pt-3">
                     <div className="space-y-1">
