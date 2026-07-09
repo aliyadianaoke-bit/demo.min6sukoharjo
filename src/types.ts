@@ -46,6 +46,8 @@ export interface CatatanHarian {
   materiSetoran: string; // e.g., Surat Al-Baqarah 1-10
   evaluasiTahsin: string; // Custom feedback
   nilai: NilaiEvaluasi;
+  kategori?: 'Murojaah' | 'Ziyadah' | 'Setoran' | 'Tugas Tilawah';
+  program?: 'dasar' | 'tahfidz';
 }
 
 export interface SystemSettings {

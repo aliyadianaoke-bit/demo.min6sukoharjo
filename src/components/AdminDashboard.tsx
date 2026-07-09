@@ -489,7 +489,7 @@ export default function AdminDashboard({
     // Build compact table rows for printing
     const tableRowsHtml = reportStudents.map((siswa, idx) => {
       const baseHistory = journals
-        .filter(j => j.siswaId === siswa.id)
+        .filter(j => j.siswaId === siswa.id && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)))
         .sort((a, b) => b.tanggal.localeCompare(a.tanggal));
       
       const totalSetoran = baseHistory.length;
@@ -1340,13 +1340,13 @@ export default function AdminDashboard({
                     <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
                       <div className="text-[10px] uppercase font-bold tracking-wider text-indigo-600">Total Transaksi Setoran</div>
                       <div className="text-2xl font-black text-indigo-900 mt-1">
-                        {journals.filter(j => j.halaqohId === selectedLaporanHalaqohId).length} Setoran
+                        {journals.filter(j => j.halaqohId === selectedLaporanHalaqohId && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori))).length} Setoran
                       </div>
                     </div>
                     <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
                       <div className="text-[10px] uppercase font-bold tracking-wider text-amber-600">Peringkat Mumtaz (A)</div>
                       <div className="text-2xl font-black text-amber-900 mt-1">
-                        {journals.filter(j => j.halaqohId === selectedLaporanHalaqohId && j.nilai === 'A').length} Kali
+                        {journals.filter(j => j.halaqohId === selectedLaporanHalaqohId && j.nilai === 'A' && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori))).length} Kali
                       </div>
                     </div>
                   </div>
@@ -1362,7 +1362,7 @@ export default function AdminDashboard({
                     ) : (
                       reportStudents.map((siswa, isDx) => {
                         // Gather history logs of this student
-                        const baseHistory = journals.filter(j => j.siswaId === siswa.id);
+                        const baseHistory = journals.filter(j => j.siswaId === siswa.id && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)));
                         
                         return (
                           <div key={siswa.id} className="p-5 bg-white border border-slate-100 shadow-xs rounded-2xl space-y-3">
