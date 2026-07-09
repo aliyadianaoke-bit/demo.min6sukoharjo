@@ -1,0 +1,158 @@
+{
+  "entities": {
+    "Settings": {
+      "title": "Settings",
+      "description": "Global application configurations, such as admin password",
+      "type": "object",
+      "properties": {
+        "adminPassword": {
+          "type": "string",
+          "description": "Administrator password used to access the admin dashboard"
+        }
+      },
+      "required": ["adminPassword"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "School classes metadata",
+      "type": "object",
+      "properties": {
+        "nama": {
+          "type": "string",
+          "description": "Class name, e.g. Kelas 1A"
+        }
+      },
+      "required": ["nama"]
+    },
+    "Halaqoh": {
+      "title": "Halaqoh",
+      "description": "Tahfidz reading groups supervised by a Musyrif teacher",
+      "type": "object",
+      "properties": {
+        "nama": {
+          "type": "string",
+          "description": "Name of the Halaqoh program group"
+        },
+        "musyrifId": {
+          "type": "string",
+          "description": "UID reference of the Musyrif supervising this group"
+        },
+        "musyrifNama": {
+          "type": "string",
+          "description": "Display name of the supervising Musyrif"
+        }
+      },
+      "required": ["nama", "musyrifId", "musyrifNama"]
+    },
+    "Musyrif": {
+      "title": "Musyrif",
+      "description": "Teacher/mentor user metadata and custom credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nim": { "type": "string" },
+        "nama": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "halaqohId": { "type": "string" },
+        "halaqohNama": { "type": "string" }
+      },
+      "required": ["id", "nim", "nama", "username", "password", "halaqohId", "halaqohNama"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Student/siswa details including class and group references",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "noInduk": { "type": "string" },
+        "nama": { "type": "string" },
+        "kelasId": { "type": "string" },
+        "kelasNama": { "type": "string" },
+        "halaqohId": { "type": "string" },
+        "halaqohNama": { "type": "string" }
+      },
+      "required": ["id", "noInduk", "nama", "kelasId", "kelasNama", "halaqohId", "halaqohNama"]
+    },
+    "CatatanHarian": {
+      "title": "CatatanHarian",
+      "description": "Daily tahfidz setoran log journal written by Musyrif",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tanggal": { "type": "string" },
+        "siswaId": { "type": "string" },
+        "siswaNama": { "type": "string" },
+        "noInduk": { "type": "string" },
+        "kelasNama": { "type": "string" },
+        "halaqohId": { "type": "string" },
+        "materiSetoran": { "type": "string" },
+        "evaluasiTahsin": { "type": "string" },
+        "nilai": { "type": "string" }
+      },
+      "required": [
+        "id",
+        "tanggal",
+        "siswaId",
+        "siswaNama",
+        "noInduk",
+        "kelasNama",
+        "halaqohId",
+        "materiSetoran",
+        "evaluasiTahsin",
+        "nilai"
+      ]
+    },
+    "AbsenMusyrif": {
+      "title": "AbsenMusyrif",
+      "description": "Attendance log for Musyrif with selfie photo",
+      "type": "object",
+      "properties": {
+        "musyrifId": { "type": "string" },
+        "musyrifNama": { "type": "string" },
+        "tanggal": { "type": "string" },
+        "waktu": { "type": "string" },
+        "hari": { "type": "string" },
+        "fotoUrl": { "type": "string" }
+      },
+      "required": [
+        "musyrifId",
+        "musyrifNama",
+        "tanggal",
+        "waktu",
+        "hari",
+        "fotoUrl"
+      ]
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "App settings configurations"
+    },
+    "/classes/{classId}": {
+      "schema": "Class",
+      "description": "School classes"
+    },
+    "/halaqoh/{halaqohId}": {
+      "schema": "Halaqoh",
+      "description": "Tahfidz groups"
+    },
+    "/musyrif/{musyrifId}": {
+      "schema": "Musyrif",
+      "description": "Musyrif teacher accounts"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Students list record"
+    },
+    "/catatan_harian/{journalId}": {
+      "schema": "CatatanHarian",
+      "description": "Daily setoran diaries"
+    },
+    "/absen_musyrif/{absenId}": {
+      "schema": "AbsenMusyrif",
+      "description": "Attendance list of Musyrifs"
+    }
+  }
+}

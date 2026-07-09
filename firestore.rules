@@ -1,0 +1,112 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety catch-all default-deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions for entity validation
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSettings(data) {
+      return data.adminPassword is string && data.adminPassword.size() <= 100;
+    }
+
+    function isValidClass(data) {
+      return data.nama is string && data.nama.size() <= 100;
+    }
+
+    function isValidHalaqoh(data) {
+      return data.nama is string && data.nama.size() <= 100
+        && (data.musyrifId == '' || (data.musyrifId is string && data.musyrifId.size() <= 128))
+        && data.musyrifNama is string && data.musyrifNama.size() <= 150;
+    }
+
+    function isValidMusyrif(data) {
+      return (data.get('id', null) == null || (data.id is string && data.id.size() <= 128))
+        && data.nim is string && data.nim.size() <= 50
+        && data.nama is string && data.nama.size() <= 150
+        && data.username is string && data.username.size() <= 100
+        && (data.password == null || (data.password is string && data.password.size() <= 100))
+        && (data.halaqohId == '' || (data.halaqohId is string && data.halaqohId.size() <= 128))
+        && data.halaqohNama is string && data.halaqohNama.size() <= 150;
+    }
+
+    function isValidStudent(data) {
+      return (data.get('id', null) == null || (data.id is string && data.id.size() <= 128))
+        && data.noInduk is string && data.noInduk.size() <= 50
+        && data.nama is string && data.nama.size() <= 150
+        && data.kelasId is string && data.kelasId.size() <= 128
+        && data.kelasNama is string && data.kelasNama.size() <= 100
+        && (data.halaqohId == '' || (data.halaqohId is string && data.halaqohId.size() <= 128))
+        && data.halaqohNama is string && data.halaqohNama.size() <= 150;
+    }
+
+    function isValidCatatanHarian(data) {
+      return data.tanggal is string && data.tanggal.size() <= 50
+        && data.siswaId is string && data.siswaId.size() <= 128
+        && data.siswaNama is string && data.siswaNama.size() <= 150
+        && data.noInduk is string && data.noInduk.size() <= 50
+        && data.kelasNama is string && data.kelasNama.size() <= 100
+        && (data.halaqohId == '' || (data.halaqohId is string && data.halaqohId.size() <= 128))
+        && data.materiSetoran is string && data.materiSetoran.size() <= 500
+        && data.evaluasiTahsin is string && data.evaluasiTahsin.size() <= 2000
+        && data.nilai is string && data.nilai.size() <= 10;
+    }
+
+    function isValidAbsenMusyrif(data) {
+      return data.musyrifId is string && data.musyrifId.size() <= 128
+        && data.musyrifNama is string && data.musyrifNama.size() <= 150
+        && data.tanggal is string && data.tanggal.size() <= 50
+        && data.waktu is string && data.waktu.size() <= 50
+        && data.hari is string && data.hari.size() <= 50
+        && data.fotoUrl is string && data.fotoUrl.size() <= 5000000;
+    }
+
+    // Rules for Settings Collection
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isValidId(settingId) && isValidSettings(request.resource.data);
+    }
+
+    // Rules for Classes Collection
+    match /classes/{classId} {
+      allow read: if true;
+      allow write: if isValidId(classId) && (request.method == 'delete' || isValidClass(request.resource.data));
+    }
+
+    // Rules for Halaqoh Collection
+    match /halaqoh/{halaqohId} {
+      allow read: if true;
+      allow write: if isValidId(halaqohId) && (request.method == 'delete' || isValidHalaqoh(request.resource.data));
+    }
+
+    // Rules for Musyrif Collection
+    match /musyrif/{musyrifId} {
+      allow read: if true;
+      allow write: if isValidId(musyrifId) && (request.method == 'delete' || isValidMusyrif(request.resource.data));
+    }
+
+    // Rules for Students Collection
+    match /students/{studentId} {
+      allow read: if true;
+      allow write: if isValidId(studentId) && (request.method == 'delete' || isValidStudent(request.resource.data));
+    }
+
+    // Rules for Catatan Harian Collection
+    match /catatan_harian/{journalId} {
+      allow read: if true;
+      allow write: if isValidId(journalId) && (request.method == 'delete' || isValidCatatanHarian(request.resource.data));
+    }
+
+    // Rules for Absen Musyrif Collection
+    match /absen_musyrif/{absenId} {
+      allow read: if true;
+      allow write: if isValidId(absenId) && (request.method == 'delete' || isValidAbsenMusyrif(request.resource.data));
+    }
+  }
+}

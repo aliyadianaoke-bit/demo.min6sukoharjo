@@ -1,0 +1,6 @@
+{
+  "name": "Jurnal Tahfidz MIN 6 Sukoharjo",
+  "description": "Website Jurnal Tahfidz MIN 6 Sukoharjo - Program Tahfidz Markaz Muhibbil Qur'an",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
