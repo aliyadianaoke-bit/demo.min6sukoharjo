@@ -516,7 +516,6 @@ export default function AdminDashboard({
               <span class="nilai-badge nilai-${latestLog.nilai}">${labelNilai}</span>
             </div>
             <div style="margin-top: 3px;"><strong>Materi:</strong> ${latestLog.materiSetoran}</div>
-            ${latestLog.evaluasiTahsin ? `<div style="margin-top: 2px; color: #475569; font-style: italic;">Eva: ${latestLog.evaluasiTahsin}</div>` : ''}
           </div>
         `;
 
@@ -1401,9 +1400,6 @@ export default function AdminDashboard({
                                         </span>
                                       </div>
                                       <div><strong>Materi:</strong> <span className="text-slate-800">{log.materiSetoran}</span></div>
-                                      <div className="text-slate-500 text-[11px] leading-relaxed">
-                                        <strong>Evaluasi (Tahsin/Tajwid):</strong> {log.evaluasiTahsin}
-                                      </div>
                                     </div>
                                   ))}
                                 </div>

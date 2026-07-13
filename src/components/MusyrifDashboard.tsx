@@ -1596,7 +1596,7 @@ export default function MusyrifDashboard({
                                 <td className="py-3 px-4 font-mono">{log.noInduk}</td>
                                 <td className="py-3 px-4 font-bold text-slate-900">{log.siswaNama}</td>
                                 <td className="py-3 px-4 font-semibold text-emerald-900">{log.materiSetoran}</td>
-                                <td className="py-3 px-4 text-slate-500 italic max-w-xs truncate" title={log.evaluasiTahsin}>{log.evaluasiTahsin}</td>
+                                <td className="py-3 px-4 text-slate-500 italic max-w-xs truncate" title={selectedProgram === 'tahfidz' ? '-' : log.evaluasiTahsin}>{selectedProgram === 'tahfidz' ? '-' : log.evaluasiTahsin}</td>
                                 <td className="py-3 px-4 text-center">
                                   <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase ${getNilaiBadgeClass(log.nilai)}`}>
                                     {getNilaiLabel(log.nilai)}
@@ -1777,9 +1777,11 @@ export default function MusyrifDashboard({
                                 <p className="font-bold text-slate-800">
                                   📖 Materi: <span className="text-emerald-800">{log.materiSetoran}</span>
                                 </p>
-                                <p className="text-slate-500 italic leading-snug">
-                                  🔍 Evaluasi: {log.evaluasiTahsin}
-                                </p>
+                                {!(log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori)) && (
+                                  <p className="text-slate-500 italic leading-snug">
+                                    🔍 Evaluasi: {log.evaluasiTahsin}
+                                  </p>
+                                )}
                               </div>
                             </div>
                           ))}
@@ -1953,7 +1955,9 @@ export default function MusyrifDashboard({
                   {lastEntryForKategori ? (
                     <div className="space-y-1">
                       <p className="font-bold text-slate-700">Materi: <span className="text-emerald-800 font-extrabold">{lastEntryForKategori.materiSetoran}</span></p>
-                      <p className="text-slate-500 italic text-[11px] leading-relaxed">Eval: {lastEntryForKategori.evaluasiTahsin}</p>
+                      {!(lastEntryForKategori.program === 'tahfidz' || (lastEntryForKategori.program !== 'dasar' && !!lastEntryForKategori.kategori)) && (
+                        <p className="text-slate-500 italic text-[11px] leading-relaxed">Eval: {lastEntryForKategori.evaluasiTahsin}</p>
+                      )}
                       <div className="flex items-center gap-1.5 mt-1">
                         <span className="text-[10px] text-slate-450 font-bold">Nilai:</span>
                         <span className={`px-2 py-0.5 rounded-sm font-extrabold text-[9px] uppercase ${

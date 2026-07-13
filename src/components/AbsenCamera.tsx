@@ -6,6 +6,46 @@ interface AbsenCameraProps {
   onCancel: () => void;
 }
 
+const compressImage = (base64Str: string, maxWidth = 600, maxHeight = 600, quality = 0.7): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(base64Str);
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(compressedDataUrl);
+    };
+    img.onerror = (err) => {
+      reject(err);
+    };
+  });
+};
+
 export default function AbsenCamera({ onCapture, onCancel }: AbsenCameraProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -26,9 +66,17 @@ export default function AbsenCamera({ onCapture, onCancel }: AbsenCameraProps) {
     setIsProcessing(true);
 
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setCapturedImage(reader.result as string);
-      setIsProcessing(false);
+    reader.onloadend = async () => {
+      try {
+        const originalBase64 = reader.result as string;
+        const compressedBase64 = await compressImage(originalBase64);
+        setCapturedImage(compressedBase64);
+      } catch (err) {
+        console.error('Error compressing image:', err);
+        setCapturedImage(reader.result as string);
+      } finally {
+        setIsProcessing(false);
+      }
     };
     reader.onerror = () => {
       setErrorMessage('Gagal memuat gambar, silakan coba lagi.');
