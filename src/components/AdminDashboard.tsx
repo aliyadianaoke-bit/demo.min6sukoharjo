@@ -17,6 +17,7 @@ interface AbsenMusyrif {
   waktu: string; // HH:mm:ss
   hari: string; // e.g. Senin, Selasa, dll
   fotoUrl: string; // base64 string
+  status?: 'Proses' | 'Disetujui';
 }
 
 interface AdminDashboardProps {
@@ -80,6 +81,7 @@ export default function AdminDashboard({
 
   // 5. Laporan Form
   const [selectedLaporanHalaqohId, setSelectedLaporanHalaqohId] = useState(halaqohs[0]?.id || '');
+  const [selectedLaporanMusyrifId, setSelectedLaporanMusyrifId] = useState('');
 
   // 6. Pengaturan Form
   const [currentPass, setCurrentPass] = useState('');
@@ -132,6 +134,34 @@ export default function AdminDashboard({
       showFeedback('Catatan absen berhasil dihapus!');
     } catch (err: any) {
       showFeedback('Gagal menghapus catatan absen: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleApproveAbsen = async (id: string) => {
+    setIsSaving(true);
+    try {
+      await updateDoc(doc(db, 'absen_musyrif', id), {
+        status: 'Disetujui'
+      });
+      showFeedback('Kehadiran Musyrif berhasil disetujui!');
+    } catch (err: any) {
+      showFeedback('Gagal menyetujui kehadiran: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRejectAbsen = async (id: string) => {
+    setIsSaving(true);
+    try {
+      await updateDoc(doc(db, 'absen_musyrif', id), {
+        status: 'Proses'
+      });
+      showFeedback('Persetujuan kehadiran musyrif berhasil dibatalkan.');
+    } catch (err: any) {
+      showFeedback('Gagal membatalkan persetujuan: ' + err.message, 'danger');
     } finally {
       setIsSaving(false);
     }
@@ -769,7 +799,7 @@ export default function AdminDashboard({
         <div class="meta-container">
           <div>
             <div class="meta-item"><strong>Halaqoh Qur'an</strong>: ${activeHalaqoh.nama}</div>
-            <div class="meta-item"><strong>Musyrif Pengampu</strong>: ${activeHalaqoh.musyrifNama}</div>
+            <div class="meta-item"><strong>Musyrif Pengampu</strong>: ${activeHalaqohMusyrifNames}</div>
           </div>
           <div>
             <div class="meta-item"><strong>Tanggal Cetak</strong>: ${formattedDate}</div>
@@ -801,7 +831,7 @@ export default function AdminDashboard({
           <div class="sig-box">
             <div>Sukoharjo, ${formattedDate}</div>
             <div style="font-weight: 700; margin-top: 4px;">Musyrif Pengampu</div>
-            <div class="sig-line">${activeHalaqoh.musyrifNama}</div>
+            <div class="sig-line">${activeHalaqohMusyrifNames}</div>
           </div>
         </div>
       </body>
@@ -836,6 +866,11 @@ export default function AdminDashboard({
   // Prepare reports data
   const reportStudents = students.filter(s => s.halaqohId === selectedLaporanHalaqohId);
   const activeHalaqoh = halaqohs.find(h => h.id === selectedLaporanHalaqohId);
+  const activeHalaqohMusyrifs = musyrifs.filter(m => 
+    m.halaqohId === selectedLaporanHalaqohId || 
+    (activeHalaqoh?.musyrifIds && activeHalaqoh.musyrifIds.includes(m.id))
+  );
+  const activeHalaqohMusyrifNames = activeHalaqohMusyrifs.map(m => m.nama).join(', ') || activeHalaqoh?.musyrifNama || 'Belum Ditentukan';
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
@@ -1297,31 +1332,63 @@ export default function AdminDashboard({
               </div>
 
               {/* Filter Row */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col sm:flex-row gap-4 items-center">
-                <div className="w-full sm:w-auto text-xs font-bold text-slate-600 shrink-0">
-                  PILIH HALAQOH :
-                </div>
-                <select
-                  value={selectedLaporanHalaqohId}
-                  onChange={(e) => setSelectedLaporanHalaqohId(e.target.value)}
-                  className="w-full sm:w-64 px-4 py-2 bg-white border border-slate-250 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
-                >
-                  <option value="">-- Silahkan Pilih Halaqoh --</option>
-                  {halaqohs.map(hq => (
-                    <option key={hq.id} value={hq.id}>{hq.nama} ({hq.musyrifNama})</option>
-                  ))}
-                </select>
-                
-                {activeHalaqoh && (
-                  <div className="text-xs text-slate-500 hidden sm:block">
-                    Musyrif Pengampu: <strong>{activeHalaqoh.musyrifNama}</strong>
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="flex flex-col sm:flex-row gap-4 items-center flex-wrap w-full md:w-auto">
+                  {/* Select Musyrif */}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <span className="text-xs font-bold text-slate-600 shrink-0">PILIH MUSYRIF:</span>
+                    <select
+                      value={selectedLaporanMusyrifId}
+                      onChange={(e) => {
+                        const mId = e.target.value;
+                        setSelectedLaporanMusyrifId(mId);
+                        if (mId) {
+                          const hqOfMusyrif = halaqohs.filter(h => h.musyrifId === mId || h.musyrifIds?.includes(mId));
+                          if (hqOfMusyrif.length > 0) {
+                            setSelectedLaporanHalaqohId(hqOfMusyrif[0].id);
+                          } else {
+                            setSelectedLaporanHalaqohId('');
+                          }
+                        }
+                      }}
+                      className="w-full sm:w-56 px-3 py-2 bg-white border border-slate-250 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                    >
+                      <option value="">-- Semua Musyrif --</option>
+                      {musyrifs.map(m => (
+                        <option key={m.id} value={m.id}>{m.nama}</option>
+                      ))}
+                    </select>
                   </div>
-                )}
+
+                  {/* Select Halaqoh */}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <span className="text-xs font-bold text-slate-600 shrink-0">PILIH HALAQOH:</span>
+                    <select
+                      value={selectedLaporanHalaqohId}
+                      onChange={(e) => setSelectedLaporanHalaqohId(e.target.value)}
+                      className="w-full sm:w-56 px-3 py-2 bg-white border border-slate-250 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                    >
+                      <option value="">-- Silahkan Pilih Halaqoh --</option>
+                      {(selectedLaporanMusyrifId 
+                        ? halaqohs.filter(h => h.musyrifId === selectedLaporanMusyrifId || h.musyrifIds?.includes(selectedLaporanMusyrifId))
+                        : halaqohs
+                      ).map(hq => (
+                        <option key={hq.id} value={hq.id}>{hq.nama}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {activeHalaqoh && (
+                    <div className="text-xs text-slate-500 hidden lg:block">
+                      Musyrif Pengampu: <strong className="text-emerald-800">{activeHalaqohMusyrifNames}</strong>
+                    </div>
+                  )}
+                </div>
 
                 {selectedLaporanHalaqohId && (
                   <button
                     onClick={handleCetakPDF}
-                    className="w-full sm:w-auto ml-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-sm hover:shadow"
+                    className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-sm hover:shadow shrink-0 self-stretch md:self-auto"
                   >
                     <Printer className="w-4 h-4" />
                     <span>Cetak PDF</span>
@@ -1574,18 +1641,46 @@ export default function AdminDashboard({
                                 )}
                               </td>
                               <td className="py-3 px-4 text-center">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 border border-emerald-100 text-emerald-700">
-                                  ● HADIR
-                                </span>
+                                <div className="flex items-center justify-center">
+                                  {absen.status === 'Disetujui' ? (
+                                    <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1">
+                                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Disetujui
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs font-extrabold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 animate-pulse">
+                                      <span className="w-2 h-2 rounded-full bg-amber-500" /> Proses
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-3 px-4 text-right">
-                                <button
-                                  onClick={() => handleDeleteAbsen(absen.id)}
-                                  className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
-                                  title="Hapus Catatan Absen"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {absen.status !== 'Disetujui' ? (
+                                    <button
+                                      onClick={() => handleApproveAbsen(absen.id)}
+                                      className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[10px] rounded-lg cursor-pointer transition flex items-center gap-1 shadow-sm hover:shadow-md"
+                                      title="Setujui Kehadiran (ACC)"
+                                    >
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                      <span>ACC</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleRejectAbsen(absen.id)}
+                                      className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold text-[10px] rounded-lg cursor-pointer transition flex items-center gap-1 border border-amber-200"
+                                      title="Batalkan Persetujuan (Batal ACC)"
+                                    >
+                                      <span>Batal ACC</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleDeleteAbsen(absen.id)}
+                                    className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
+                                    title="Hapus Catatan Absen"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1627,9 +1722,17 @@ export default function AdminDashboard({
                               <h4 className="text-xs font-black text-slate-900 uppercase truncate">
                                 {absen.musyrifNama}
                               </h4>
-                              <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-black bg-emerald-50 text-emerald-700">
-                                HADIR
-                              </span>
+                              <div className="flex flex-col items-end gap-1">
+                                {absen.status === 'Disetujui' ? (
+                                  <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 uppercase tracking-wider">
+                                    DISETUJUI
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-black text-amber-700 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100 uppercase tracking-wider animate-pulse">
+                                    PROSES
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <p className="text-[10px] font-semibold text-indigo-700">
                               Halaqoh: {matchedMusyrif?.halaqohNama || 'N/A'}
@@ -1642,13 +1745,33 @@ export default function AdminDashboard({
                             </p>
                           </div>
                           
-                          <button
-                            onClick={() => handleDeleteAbsen(absen.id)}
-                            className="absolute bottom-4 right-4 p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
-                            title="Hapus Absen"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="absolute bottom-4 right-4 flex items-center gap-1.5">
+                            {absen.status !== 'Disetujui' ? (
+                              <button
+                                onClick={() => handleApproveAbsen(absen.id)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] rounded-lg cursor-pointer transition flex items-center gap-1 shadow-xs"
+                                title="ACC Kehadiran"
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                                <span>ACC</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRejectAbsen(absen.id)}
+                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 font-black text-[9px] rounded-lg cursor-pointer transition flex items-center gap-1 border border-amber-200"
+                                title="Batalkan Persetujuan"
+                              >
+                                <span>Batal ACC</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteAbsen(absen.id)}
+                              className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
+                              title="Hapus Absen"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}

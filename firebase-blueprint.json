@@ -113,7 +113,8 @@
         "tanggal": { "type": "string" },
         "waktu": { "type": "string" },
         "hari": { "type": "string" },
-        "fotoUrl": { "type": "string" }
+        "fotoUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["Proses", "Disetujui"] }
       },
       "required": [
         "musyrifId",

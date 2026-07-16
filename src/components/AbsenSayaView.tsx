@@ -12,6 +12,7 @@ interface AbsenMusyrif {
   waktu: string; // HH:mm:ss
   hari: string; // e.g. Senin, Selasa, dll
   fotoUrl: string; // base64 string
+  status?: 'Proses' | 'Disetujui';
 }
 
 interface AbsenSayaViewProps {
@@ -98,7 +99,8 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
         tanggal: tanggalStr,
         waktu: waktuStr,
         hari: hariStr,
-        fotoUrl: base64Image
+        fotoUrl: base64Image,
+        status: 'Proses'
       };
 
       await addDoc(collection(db, 'absen_musyrif'), payload);
@@ -244,10 +246,18 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
                 </div>
 
                 {/* Right: Status Tag & Optional View Button */}
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-extrabold rounded-xl border border-emerald-100 uppercase tracking-wider">
-                    HADIR
-                  </span>
+                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-1">
+                    {item.status === 'Disetujui' ? (
+                      <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Disetujui
+                      </span>
+                    ) : (
+                      <span className="text-xs font-extrabold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 animate-pulse">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" /> Proses
+                      </span>
+                    )}
+                  </div>
                   
                   <button
                     onClick={() => setPreviewPhoto(item.fotoUrl)}

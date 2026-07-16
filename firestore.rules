@@ -64,7 +64,8 @@ service cloud.firestore {
         && data.tanggal is string && data.tanggal.size() <= 50
         && data.waktu is string && data.waktu.size() <= 50
         && data.hari is string && data.hari.size() <= 50
-        && data.fotoUrl is string && data.fotoUrl.size() <= 5000000;
+        && data.fotoUrl is string && data.fotoUrl.size() <= 5000000
+        && (!('status' in data) || (data.status is string && data.status.size() <= 50));
     }
 
     function isValidAbsenSiswa(data) {
