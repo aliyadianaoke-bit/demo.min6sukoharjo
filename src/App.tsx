@@ -25,10 +25,64 @@ export default function App() {
     async function init() {
       // Seed if necessary
       await seedInitialData();
+
+      // Restore session from localStorage if exists and not expired
+      const savedState = localStorage.getItem('absen_app_state');
+      const savedUser = localStorage.getItem('absen_current_user');
+      const loginTimestamp = localStorage.getItem('absen_login_timestamp');
+
+      if (savedState && (savedState === 'admin' || savedState === 'musyrif') && loginTimestamp) {
+        const parsedTimestamp = parseInt(loginTimestamp, 10);
+        const now = Date.now();
+        const twoHoursInMs = 2 * 60 * 60 * 1000; // 7,200,000 ms
+
+        if (now - parsedTimestamp < twoHoursInMs) {
+          // Session is valid, load it
+          setAppState(savedState as any);
+          if (savedUser) {
+            try {
+              setCurrentUser(JSON.parse(savedUser));
+            } catch (e) {
+              setCurrentUser(null);
+            }
+          }
+          return;
+        } else {
+          // Expired, clear storage
+          localStorage.removeItem('absen_app_state');
+          localStorage.removeItem('absen_current_user');
+          localStorage.removeItem('absen_login_timestamp');
+        }
+      }
+
       setAppState('home');
     }
     init();
   }, []);
+
+  // Periodic check for session expiration (2 hours from login)
+  useEffect(() => {
+    if (appState === 'home' || appState === 'loading') return;
+
+    const checkInterval = setInterval(() => {
+      const loginTimestamp = localStorage.getItem('absen_login_timestamp');
+      if (loginTimestamp) {
+        const parsedTimestamp = parseInt(loginTimestamp, 10);
+        const now = Date.now();
+        const twoHoursInMs = 2 * 60 * 60 * 1000;
+
+        if (now - parsedTimestamp >= twoHoursInMs) {
+          // Session expired, trigger logout
+          handleLogout();
+        }
+      } else {
+        // No session timestamp but in authenticated state, clear for safety
+        handleLogout();
+      }
+    }, 15000); // Check every 15 seconds
+
+    return () => clearInterval(checkInterval);
+  }, [appState]);
 
   // Fetch / Sync all collections in real-time
   useEffect(() => {
@@ -121,21 +175,31 @@ export default function App() {
   };
 
   const handleLoginSuccess = (role: 'admin' | 'musyrif', userId?: string, userNama?: string) => {
+    const now = Date.now();
+    localStorage.setItem('absen_app_state', role);
+    localStorage.setItem('absen_login_timestamp', now.toString());
+
     if (role === 'admin') {
       setAppState('admin');
       setCurrentUser(null);
+      localStorage.removeItem('absen_current_user');
     } else {
-      setAppState('musyrif');
-      setCurrentUser({
+      const user = {
         id: userId || '',
         nama: userNama || 'Musyrif'
-      });
+      };
+      setAppState('musyrif');
+      setCurrentUser(user);
+      localStorage.setItem('absen_current_user', JSON.stringify(user));
     }
   };
 
   const handleLogout = () => {
     setAppState('home');
     setCurrentUser(null);
+    localStorage.removeItem('absen_app_state');
+    localStorage.removeItem('absen_current_user');
+    localStorage.removeItem('absen_login_timestamp');
   };
 
   if (appState === 'loading') {

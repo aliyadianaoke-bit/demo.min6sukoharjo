@@ -82,6 +82,7 @@ export default function AdminDashboard({
   // 5. Laporan Form
   const [selectedLaporanHalaqohId, setSelectedLaporanHalaqohId] = useState(halaqohs[0]?.id || '');
   const [selectedLaporanMusyrifId, setSelectedLaporanMusyrifId] = useState('');
+  const [selectedLaporanKelasTipe, setSelectedLaporanKelasTipe] = useState('semua');
 
   // 6. Pengaturan Form
   const [currentPass, setCurrentPass] = useState('');
@@ -800,6 +801,7 @@ export default function AdminDashboard({
           <div>
             <div class="meta-item"><strong>Halaqoh Qur'an</strong>: ${activeHalaqoh.nama}</div>
             <div class="meta-item"><strong>Musyrif Pengampu</strong>: ${activeHalaqohMusyrifNames}</div>
+            <div class="meta-item"><strong>Kategori Kelas</strong>: ${selectedLaporanKelasTipe === 'semua' ? 'Semua Kelas (Dasar & Tahfidz)' : selectedLaporanKelasTipe === 'dasar' ? 'Kelas Dasar' : 'Kelas Tahfidz'}</div>
           </div>
           <div>
             <div class="meta-item"><strong>Tanggal Cetak</strong>: ${formattedDate}</div>
@@ -864,7 +866,17 @@ export default function AdminDashboard({
   };
 
   // Prepare reports data
-  const reportStudents = students.filter(s => s.halaqohId === selectedLaporanHalaqohId);
+  const reportStudents = students.filter(s => {
+    if (s.halaqohId !== selectedLaporanHalaqohId) return false;
+    if (selectedLaporanKelasTipe === 'dasar') return s.isKelasDasar === true;
+    if (selectedLaporanKelasTipe === 'tahfidz') return s.isKelasTahfidz === true;
+    return true;
+  });
+  const reportStudentIds = reportStudents.map(s => s.id);
+  const reportJournals = journals.filter(j => 
+    reportStudentIds.includes(j.siswaId) && 
+    (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori))
+  );
   const activeHalaqoh = halaqohs.find(h => h.id === selectedLaporanHalaqohId);
   const activeHalaqohMusyrifs = musyrifs.filter(m => 
     m.halaqohId === selectedLaporanHalaqohId || 
@@ -1334,32 +1346,6 @@ export default function AdminDashboard({
               {/* Filter Row */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
                 <div className="flex flex-col sm:flex-row gap-4 items-center flex-wrap w-full md:w-auto">
-                  {/* Select Musyrif */}
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <span className="text-xs font-bold text-slate-600 shrink-0">PILIH MUSYRIF:</span>
-                    <select
-                      value={selectedLaporanMusyrifId}
-                      onChange={(e) => {
-                        const mId = e.target.value;
-                        setSelectedLaporanMusyrifId(mId);
-                        if (mId) {
-                          const hqOfMusyrif = halaqohs.filter(h => h.musyrifId === mId || h.musyrifIds?.includes(mId));
-                          if (hqOfMusyrif.length > 0) {
-                            setSelectedLaporanHalaqohId(hqOfMusyrif[0].id);
-                          } else {
-                            setSelectedLaporanHalaqohId('');
-                          }
-                        }
-                      }}
-                      className="w-full sm:w-56 px-3 py-2 bg-white border border-slate-250 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
-                    >
-                      <option value="">-- Semua Musyrif --</option>
-                      {musyrifs.map(m => (
-                        <option key={m.id} value={m.id}>{m.nama}</option>
-                      ))}
-                    </select>
-                  </div>
-
                   {/* Select Halaqoh */}
                   <div className="flex items-center gap-2 w-full sm:w-auto">
                     <span className="text-xs font-bold text-slate-600 shrink-0">PILIH HALAQOH:</span>
@@ -1369,12 +1355,23 @@ export default function AdminDashboard({
                       className="w-full sm:w-56 px-3 py-2 bg-white border border-slate-250 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
                     >
                       <option value="">-- Silahkan Pilih Halaqoh --</option>
-                      {(selectedLaporanMusyrifId 
-                        ? halaqohs.filter(h => h.musyrifId === selectedLaporanMusyrifId || h.musyrifIds?.includes(selectedLaporanMusyrifId))
-                        : halaqohs
-                      ).map(hq => (
+                      {halaqohs.map(hq => (
                         <option key={hq.id} value={hq.id}>{hq.nama}</option>
                       ))}
+                    </select>
+                  </div>
+
+                  {/* Select Kategori Kelas (Dasar / Tahfidz) */}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <span className="text-xs font-bold text-slate-600 shrink-0">PILIH KELAS:</span>
+                    <select
+                      value={selectedLaporanKelasTipe}
+                      onChange={(e) => setSelectedLaporanKelasTipe(e.target.value)}
+                      className="w-full sm:w-44 px-3 py-2 bg-white border border-slate-250 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                    >
+                      <option value="semua">-- Semua (Dasar & Tahfidz) --</option>
+                      <option value="dasar">Kelas Dasar</option>
+                      <option value="tahfidz">Kelas Tahfidz</option>
                     </select>
                   </div>
 
@@ -1407,13 +1404,13 @@ export default function AdminDashboard({
                     <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
                       <div className="text-[10px] uppercase font-bold tracking-wider text-indigo-600">Total Transaksi Setoran</div>
                       <div className="text-2xl font-black text-indigo-900 mt-1">
-                        {journals.filter(j => j.halaqohId === selectedLaporanHalaqohId && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori))).length} Setoran
+                        {reportJournals.length} Setoran
                       </div>
                     </div>
                     <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
                       <div className="text-[10px] uppercase font-bold tracking-wider text-amber-600">Peringkat Mumtaz (A)</div>
                       <div className="text-2xl font-black text-amber-900 mt-1">
-                        {journals.filter(j => j.halaqohId === selectedLaporanHalaqohId && j.nilai === 'A' && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori))).length} Kali
+                        {reportJournals.filter(j => j.nilai === 'A').length} Kali
                       </div>
                     </div>
                   </div>
