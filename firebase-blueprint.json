@@ -123,6 +123,33 @@
         "hari",
         "fotoUrl"
       ]
+    },
+    "AbsenSiswa": {
+      "title": "AbsenSiswa",
+      "description": "Daily attendance log for students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tanggal": { "type": "string" },
+        "siswaId": { "type": "string" },
+        "siswaNama": { "type": "string" },
+        "noInduk": { "type": "string" },
+        "kelasId": { "type": "string" },
+        "kelasNama": { "type": "string" },
+        "status": { "type": "string", "enum": ["Hadir", "Sakit", "Izin", "Alpa"] },
+        "musyrifId": { "type": "string" }
+      },
+      "required": [
+        "id",
+        "tanggal",
+        "siswaId",
+        "siswaNama",
+        "noInduk",
+        "kelasId",
+        "kelasNama",
+        "status",
+        "musyrifId"
+      ]
     }
   },
   "firestore": {
@@ -153,6 +180,10 @@
     "/absen_musyrif/{absenId}": {
       "schema": "AbsenMusyrif",
       "description": "Attendance list of Musyrifs"
+    },
+    "/absen_siswa/{absenId}": {
+      "schema": "AbsenSiswa",
+      "description": "Daily attendance records for students"
     }
   }
 }

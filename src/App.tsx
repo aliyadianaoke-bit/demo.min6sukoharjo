@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, seedInitialData } from './firebase';
 import { collection, onSnapshot, getDoc, doc } from 'firebase/firestore';
-import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian } from './types';
+import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa } from './types';
 import HomeView from './components/HomeView';
 import AdminDashboard from './components/AdminDashboard';
 import MusyrifDashboard from './components/MusyrifDashboard';
@@ -17,6 +17,7 @@ export default function App() {
   const [musyrifs, setMusyrifs] = useState<Musyrif[]>([]);
   const [halaqohs, setHalaqohs] = useState<Halaqoh[]>([]);
   const [journals, setJournals] = useState<CatatanHarian[]>([]);
+  const [studentAttendances, setStudentAttendances] = useState<AbsenSiswa[]>([]);
   const [adminPass, setAdminPass] = useState('admin123'); // fallback default
 
   // Load and seed initial data once
@@ -94,6 +95,15 @@ export default function App() {
       setJournals(list);
     });
 
+    // 7. Sync student daily attendance
+    const unsubAbsenSiswa = onSnapshot(collection(db, 'absen_siswa'), (snap) => {
+      const list: AbsenSiswa[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as AbsenSiswa);
+      });
+      setStudentAttendances(list);
+    });
+
     return () => {
       unsubSettings();
       unsubClasses();
@@ -101,6 +111,7 @@ export default function App() {
       unsubMusyrif();
       unsubStudents();
       unsubCatatan();
+      unsubAbsenSiswa();
     };
   }, []);
 
@@ -178,6 +189,7 @@ export default function App() {
           students={students}
           halaqohs={halaqohs}
           journals={journals}
+          studentAttendances={studentAttendances}
           refreshData={refreshAllData}
         />
       )}

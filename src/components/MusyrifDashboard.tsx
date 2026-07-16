@@ -7,7 +7,7 @@ import {
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { db } from '../firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
-import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi } from '../types';
+import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi, AbsenSiswa } from '../types';
 import AbsenSayaView from './AbsenSayaView';
 import AbsenCamera from './AbsenCamera';
 
@@ -19,6 +19,7 @@ interface MusyrifDashboardProps {
   students: Siswa[];
   halaqohs: Halaqoh[];
   journals: CatatanHarian[];
+  studentAttendances?: AbsenSiswa[];
   refreshData: () => Promise<void>;
 }
 
@@ -30,9 +31,10 @@ export default function MusyrifDashboard({
   students,
   halaqohs,
   journals,
+  studentAttendances = [],
   refreshData
 }: MusyrifDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'absen_saya' | 'input_siswa' | 'rekap_hari' | 'rekap_bulan'>('absen_saya');
+  const [activeTab, setActiveTab] = useState<'absen_saya' | 'absen_siswa' | 'input_siswa' | 'rekap_hari' | 'rekap_bulan'>('absen_saya');
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState({ text: '', type: 'success' });
   const [showAutoAbsenModal, setShowAutoAbsenModal] = useState(false);
@@ -60,6 +62,9 @@ export default function MusyrifDashboard({
   const [selectedKelasId, setSelectedKelasId] = useState('');
   const [selectedProgram, setSelectedProgram] = useState<'dasar' | 'tahfidz' | ''>('dasar');
   const [rekapHariTanggal, setRekapHariTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [absenSiswaTanggal, setAbsenSiswaTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [absenSiswaSearch, setAbsenSiswaSearch] = useState('');
+  const [isUpdatingAttendance, setIsUpdatingAttendance] = useState<string | null>(null);
   const [selectedBulanMonth, setSelectedBulanMonth] = useState('06'); // Default June (2026 as current year)
   const [selectedBulanSiswaId, setSelectedBulanSiswaId] = useState('');
   const [searchSiswa, setSearchSiswa] = useState('');
@@ -108,9 +113,9 @@ export default function MusyrifDashboard({
     checkTodayAttendance();
   }, [userId]);
 
-  // Automatically open Halaqoh Activation Modal if none is active when switching to Input tab
+  // Automatically open Halaqoh Activation Modal if none is active when switching to Input or Absen Siswa tab
   useEffect(() => {
-    if (activeTab === 'input_siswa' && !selectedHalaqohId) {
+    if ((activeTab === 'input_siswa' || activeTab === 'absen_siswa') && !selectedHalaqohId) {
       setTempHalaqohId(firstMyHalaqohId);
       setShowHalaqohActivationModal(true);
     }
@@ -162,6 +167,93 @@ export default function MusyrifDashboard({
   const showFeedback = (text: string, type: 'success' | 'danger' = 'success') => {
     setFeedback({ text, type });
     setTimeout(() => setFeedback({ text: '', type: 'success' }), 4000);
+  };
+
+  const handleUpdateStudentAttendance = async (siswa: Siswa, status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa') => {
+    setIsUpdatingAttendance(siswa.id);
+    try {
+      // Find class name and active halaqoh
+      const sKelas = classes.find(c => c.id === siswa.kelasId);
+      const sKelasNama = sKelas?.nama || 'N/A';
+
+      // Check if attendance already exists for this student on this date
+      const existing = studentAttendances.find(
+        a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal
+      );
+
+      if (existing) {
+        if (existing.status === status) {
+          // If already set to this status, keep it or do nothing.
+          // But writing ensures Firestore is up to date. Let's update it anyway to be safe!
+          const docRef = doc(db, 'absen_siswa', existing.id);
+          await updateDoc(docRef, { status });
+        } else {
+          // Update existing
+          const docRef = doc(db, 'absen_siswa', existing.id);
+          await updateDoc(docRef, { status });
+        }
+      } else {
+        // Create new
+        const payload = {
+          tanggal: absenSiswaTanggal,
+          siswaId: siswa.id,
+          siswaNama: siswa.nama,
+          noInduk: siswa.noInduk || '-',
+          kelasId: siswa.kelasId || 'N/A',
+          kelasNama: sKelasNama,
+          status,
+          musyrifId: userId
+        };
+        await addDoc(collection(db, 'absen_siswa'), payload);
+      }
+      showFeedback(`Kehadiran ${siswa.nama} berhasil diperbarui ke '${status}'`);
+    } catch (err: any) {
+      console.error('Failed to update student attendance:', err);
+      showFeedback('Gagal menyimpan kehadiran: ' + err.message, 'danger');
+    } finally {
+      setIsUpdatingAttendance(null);
+    }
+  };
+
+  const handleMarkAllPresent = async () => {
+    const targetStudents = myStudents;
+    if (targetStudents.length === 0) return;
+    
+    setIsSaving(true);
+    let successCount = 0;
+    try {
+      for (const siswa of targetStudents) {
+        const existing = studentAttendances.find(
+          a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal
+        );
+        if (!existing) {
+          const sKelas = classes.find(c => c.id === siswa.kelasId);
+          const sKelasNama = sKelas?.nama || 'N/A';
+          const payload = {
+            tanggal: absenSiswaTanggal,
+            siswaId: siswa.id,
+            siswaNama: siswa.nama,
+            noInduk: siswa.noInduk || '-',
+            kelasId: siswa.kelasId || 'N/A',
+            kelasNama: sKelasNama,
+            status: 'Hadir' as const,
+            musyrifId: userId
+          };
+          await addDoc(collection(db, 'absen_siswa'), payload);
+          successCount++;
+        }
+      }
+      if (successCount > 0) {
+        showFeedback(`Berhasil mengabsen 'Hadir' untuk ${successCount} santri yang belum diabsen.`);
+      } else {
+        showFeedback('Semua santri sudah memiliki catatan absen hari ini.');
+      }
+    } catch (err: any) {
+      console.error('Failed to mark all present:', err);
+      showFeedback('Gagal mengabsen semua: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleOpenInputForm = (
@@ -267,32 +359,53 @@ export default function MusyrifDashboard({
       year: 'numeric'
     });
 
+    const activeStudents = myStudents.filter(s => {
+      if (s.kelasId !== selectedKelasId) return false;
+      if (selectedProgram === 'dasar') {
+        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+      }
+      if (selectedProgram === 'tahfidz') {
+        return s.isKelasTahfidz === true;
+      }
+      return false;
+    });
+    const sortedStudents = [...activeStudents].sort((a, b) => a.nama.localeCompare(b.nama));
+
     let text = `*REKAP HARIAN KELAS ${kelasNama.toUpperCase()} (${programLabel.toUpperCase()})*\n`;
     text += `*Markaz Muhibbil Qur'an*\n\n`;
     text += `🏫 *Kelas / Program*: ${kelasNama} / ${programLabel}\n`;
     text += `👤 *Musyrif/ah*: Ustadz/ah ${userNama}\n`;
     text += `📅 *Tanggal*: ${formattedDate}\n`;
-    text += `📊 *Total Setoran*: ${dailyRecapLogs.length} Santri\n\n`;
+    text += `📊 *Total Setoran*: ${dailyRecapLogs.length} dari ${sortedStudents.length} Santri\n\n`;
     text += `===================================\n\n`;
 
-    if (dailyRecapLogs.length === 0) {
-      text += `_Belum ada setoran yang tercatat hari ini._\n`;
+    if (sortedStudents.length === 0) {
+      text += `_Tidak ada santri di kelas ini._\n`;
     } else {
-      dailyRecapLogs.forEach((log, idx) => {
-        const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
-                           log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
-                           log.nilai === 'C' ? 'Jayyid (C)' : 
-                           log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+      sortedStudents.forEach((siswa, idx) => {
+        const log = dailyRecapLogs.find(j => j.siswaId === siswa.id);
 
-        const kategoriPrefix = log.kategori ? `[${log.kategori.toUpperCase()}] ` : '';
-        const isTahfidz = log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori);
+        text += `*${idx + 1}. ${siswa.nama}* (No Induk: ${siswa.noInduk || '-'})\n`;
+        if (log) {
+          const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
+                             log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
+                             log.nilai === 'C' ? 'Jayyid (C)' : 
+                             log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
 
-        text += `*${idx + 1}. ${log.siswaNama}* (No Induk: ${log.noInduk})\n`;
-        text += `• Materi: _${kategoriPrefix}${log.materiSetoran}_\n`;
-        if (!isTahfidz) {
-          text += `• Evaluasi: _${log.evaluasiTahsin || '-'}_\n`;
+          const kategoriPrefix = log.kategori ? `[${log.kategori.toUpperCase()}] ` : '';
+          const isTahfidz = log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori);
+
+          text += `• Materi: _${kategoriPrefix}${log.materiSetoran}_\n`;
+          if (!isTahfidz) {
+            text += `• Evaluasi / Catatan: _${log.evaluasiTahsin || '-'}_\n`;
+          }
+          text += `• Nilai: *${labelNilai}*\n\n`;
+        } else {
+          const att = studentAttendances.find(a => a.siswaId === siswa.id && a.tanggal === rekapHariTanggal);
+          const attStatus = att ? att.status : 'Tidak Ada Setoran / Absen';
+          const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
+          text += `• Status: _${displayStatus}_\n\n`;
         }
-        text += `• Nilai: *${labelNilai}*\n\n`;
       });
     }
 
@@ -325,32 +438,68 @@ export default function MusyrifDashboard({
       year: 'numeric'
     });
 
-    const tableRowsHtml = dailyRecapLogs.map((log, index) => {
-      const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
-                         log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
-                         log.nilai === 'C' ? 'Jayyid (C)' : 
-                         log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
-      const isTahfidzLog = log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori);
-      const categoryBadge = log.kategori 
-        ? `<span style="display: inline-block; font-size: 8px; background-color: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 1px 4px; border-radius: 3px; text-transform: uppercase; margin-right: 4px; font-weight: bold; font-family: sans-serif;">${log.kategori}</span>` 
-        : '';
-      return `
-        <tr>
-          <td style="text-align: center; font-weight: bold;">${index + 1}</td>
-          <td style="font-family: monospace; text-align: center;">${log.noInduk}</td>
-          <td>
-            <div style="font-weight: 700; text-transform: uppercase;">${log.siswaNama}</div>
-            <div style="font-size: 9px; color: #64748b;">Kelas: ${log.kelasNama || 'Belum Diatur'}</div>
-          </td>
-          <td style="font-weight: 600; color: #0f766e;">
-            ${categoryBadge}${log.materiSetoran}
-          </td>
-          <td style="color: #475569; font-style: italic;">${isTahfidzLog ? '-' : (log.evaluasiTahsin || '-')}</td>
-          <td style="text-align: center;">
-            <span class="nilai-badge nilai-${log.nilai}">${labelNilai}</span>
-          </td>
-        </tr>
-      `;
+    const activeStudents = myStudents.filter(s => {
+      if (s.kelasId !== selectedKelasId) return false;
+      if (selectedProgram === 'dasar') {
+        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+      }
+      if (selectedProgram === 'tahfidz') {
+        return s.isKelasTahfidz === true;
+      }
+      return false;
+    });
+    const sortedStudents = [...activeStudents].sort((a, b) => a.nama.localeCompare(b.nama));
+
+    const tableRowsHtml = sortedStudents.map((siswa, index) => {
+      const log = dailyRecapLogs.find(j => j.siswaId === siswa.id);
+      
+      if (log) {
+        const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
+                           log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
+                           log.nilai === 'C' ? 'Jayyid (C)' : 
+                           log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+        const isTahfidzLog = log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori);
+        const categoryBadge = log.kategori 
+          ? `<span style="display: inline-block; font-size: 8px; background-color: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 1px 4px; border-radius: 3px; text-transform: uppercase; margin-right: 4px; font-weight: bold; font-family: sans-serif;">${log.kategori}</span>` 
+          : '';
+        return `
+          <tr>
+            <td style="text-align: center; font-weight: bold;">${index + 1}</td>
+            <td style="font-family: monospace; text-align: center;">${siswa.noInduk || '-'}</td>
+            <td>
+              <div style="font-weight: 700; text-transform: uppercase;">${siswa.nama}</div>
+              <div style="font-size: 9px; color: #64748b;">Kelas: ${kelasNama}</div>
+            </td>
+            <td style="font-weight: 600; color: #0f766e;">
+              ${categoryBadge}${log.materiSetoran}
+            </td>
+            <td style="color: #475569; font-style: italic;">${isTahfidzLog ? '-' : (log.evaluasiTahsin || '-')}</td>
+            <td style="text-align: center;">
+              <span class="nilai-badge nilai-${log.nilai}">${labelNilai}</span>
+            </td>
+          </tr>
+        `;
+      } else {
+        const att = studentAttendances.find(a => a.siswaId === siswa.id && a.tanggal === rekapHariTanggal);
+        const attStatus = att ? att.status : 'Tidak Ada Setoran / Absen';
+        const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
+        const isAbsent = attStatus !== 'Hadir';
+        const rowBg = isAbsent ? '#fff1f2' : '#f0fdf4';
+        const rowColor = isAbsent ? '#9f1239' : '#166534';
+        return `
+          <tr style="background-color: ${rowBg}; color: ${rowColor};">
+            <td style="text-align: center; font-weight: bold;">${index + 1}</td>
+            <td style="font-family: monospace; text-align: center; color: ${rowColor};">${siswa.noInduk || '-'}</td>
+            <td>
+              <div style="font-weight: 700; text-transform: uppercase; color: ${rowColor};">${siswa.nama}</div>
+              <div style="font-size: 9px; color: ${rowColor};">Kelas: ${kelasNama}</div>
+            </td>
+            <td style="font-style: italic; color: ${rowColor}; font-weight: 600;" colspan="3">
+              ${displayStatus}
+            </td>
+          </tr>
+        `;
+      }
     }).join('');
 
     const htmlContent = `
@@ -507,7 +656,7 @@ export default function MusyrifDashboard({
           </div>
           <div>
             <div class="meta-item"><strong>Tanggal Laporan</strong>: ${formattedDate}</div>
-            <div class="meta-item"><strong>Total Setoran</strong>: ${dailyRecapLogs.length} Anak</div>
+            <div class="meta-item"><strong>Total Setoran</strong>: ${dailyRecapLogs.length} dari ${sortedStudents.length} Anak</div>
           </div>
         </div>
 
@@ -1031,6 +1180,7 @@ export default function MusyrifDashboard({
             
             {[
               { id: 'absen_saya', label: 'Absen Saya', icon: UserCheck },
+              { id: 'absen_siswa', label: 'Absen Siswa', icon: CheckCircle },
               { id: 'input_siswa', label: 'Input Harian Siswa', icon: BookOpen },
               { id: 'rekap_hari', label: 'Rekap Harian', icon: Calendar },
               { id: 'rekap_bulan', label: 'Rekap Bulanan', icon: TrendingUp }
@@ -1074,6 +1224,255 @@ export default function MusyrifDashboard({
           {/* TAB: ABSEN SAYA */}
           {activeTab === 'absen_saya' && (
             <AbsenSayaView userId={userId} userNama={userNama} />
+          )}
+
+          {/* TAB: ABSEN SISWA */}
+          {activeTab === 'absen_siswa' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4 gap-3">
+                <div>
+                  <h3 className="text-lg font-black text-slate-800">
+                    Absensi Kehadiran Santri (Absen Siswa)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Kelola absensi harian santri untuk halaqoh aktif. Kehadiran ini otomatis memengaruhi rekap harian saat dishare.
+                  </p>
+                </div>
+              </div>
+
+              {!selectedHalaqohId ? (
+                <div className="text-center py-16 bg-white border border-slate-150 rounded-3xl shadow-xs max-w-xl mx-auto my-8 p-8 space-y-6">
+                  <div className="w-16 h-16 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center mx-auto border border-emerald-100">
+                    <CheckCircle className="w-8 h-8" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-base font-black text-slate-800">Halaqoh Belum Aktif</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+                      Silakan aktifkan halaqoh binaan Anda terlebih dahulu melalui menu popup untuk mulai mencatat absensi harian santri.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleOpenHalaqohModal}
+                    className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-md hover:shadow-lg flex items-center justify-center gap-2 mx-auto"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Aktifkan Halaqoh Sekarang</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Active Halaqoh Bar */}
+                  <div className="bg-emerald-800 text-white p-5 rounded-2xl flex items-center justify-between shadow-xs">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+                        <BookMarked className="w-5 h-5 text-emerald-100" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest leading-none">HALAQOH AKTIF</div>
+                        <div className="text-sm font-black mt-1">
+                          {myHalaqohs.find(h => h.id === selectedHalaqohId)?.nama || 'Halaqoh Aktif'}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleOpenHalaqohModal}
+                      className="px-4 py-2 bg-white text-emerald-800 hover:bg-emerald-50 text-xs font-extrabold rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Ganti Halaqoh</span>
+                    </button>
+                  </div>
+
+                  {/* Date selection, search & bulk operations */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150 shadow-xs space-y-4">
+                    <div className="flex flex-col md:flex-row gap-4 items-end justify-between">
+                      <div className="w-full md:w-auto flex flex-col sm:flex-row gap-4 flex-1">
+                        {/* Date Picker */}
+                        <div className="w-full sm:w-48 space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Tanggal Absensi</label>
+                          <div className="relative">
+                            <Calendar className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                            <input
+                              type="date"
+                              value={absenSiswaTanggal}
+                              onChange={(e) => setAbsenSiswaTanggal(e.target.value)}
+                              className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-600"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Search Input */}
+                        <div className="w-full flex-1 space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cari Santri</label>
+                          <div className="relative">
+                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                            <input
+                              type="text"
+                              placeholder="Cari nama atau nomor induk..."
+                              value={absenSiswaSearch}
+                              onChange={(e) => setAbsenSiswaSearch(e.target.value)}
+                              className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-600"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bulk Operations */}
+                      <div className="w-full md:w-auto shrink-0 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={isSaving || myStudents.length === 0}
+                          onClick={handleMarkAllPresent}
+                          className="w-full md:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-xs"
+                        >
+                          <UserCheck className="w-4 h-4" />
+                          <span>Hadirkan Semua</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Statistics Cards */}
+                    {(() => {
+                      const list = myStudents;
+                      const todaysAbsen = studentAttendances.filter(a => a.tanggal === absenSiswaTanggal);
+                      
+                      let countHadir = 0;
+                      let countSakit = 0;
+                      let countIzin = 0;
+                      let countAlpa = 0;
+                      let countBelum = 0;
+
+                      list.forEach(s => {
+                        const rec = todaysAbsen.find(a => a.siswaId === s.id);
+                        if (!rec) {
+                          countBelum++;
+                        } else if (rec.status === 'Hadir') {
+                          countHadir++;
+                        } else if (rec.status === 'Sakit') {
+                          countSakit++;
+                        } else if (rec.status === 'Izin') {
+                          countIzin++;
+                        } else if (rec.status === 'Alpa') {
+                          countAlpa++;
+                        }
+                      });
+
+                      return (
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2">
+                          <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-xl text-center">
+                            <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Hadir</div>
+                            <div className="text-xl font-extrabold text-emerald-800 mt-1">{countHadir}</div>
+                          </div>
+                          <div className="bg-amber-50/50 border border-amber-100 p-3 rounded-xl text-center">
+                            <div className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Sakit</div>
+                            <div className="text-xl font-extrabold text-amber-800 mt-1">{countSakit}</div>
+                          </div>
+                          <div className="bg-sky-50/50 border border-sky-100 p-3 rounded-xl text-center">
+                            <div className="text-[10px] font-bold text-sky-600 uppercase tracking-widest">Izin</div>
+                            <div className="text-xl font-extrabold text-sky-800 mt-1">{countIzin}</div>
+                          </div>
+                          <div className="bg-rose-50/50 border border-rose-100 p-3 rounded-xl text-center">
+                            <div className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">Alpa</div>
+                            <div className="text-xl font-extrabold text-rose-800 mt-1">{countAlpa}</div>
+                          </div>
+                          <div className="bg-slate-50/50 border border-slate-200 p-3 rounded-xl text-center col-span-2 sm:col-span-1">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Belum Diabsen</div>
+                            <div className="text-xl font-extrabold text-slate-700 mt-1">{countBelum}</div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Student List for Attendance */}
+                  <div className="bg-white rounded-2xl border border-slate-150 shadow-xs overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                      <h4 className="text-xs font-black text-slate-800 tracking-wider uppercase">Daftar Kehadiran Santri ({
+                        myStudents.filter(s => {
+                          if (absenSiswaSearch.trim()) {
+                            return s.nama.toLowerCase().includes(absenSiswaSearch.toLowerCase()) ||
+                                   (s.noInduk && s.noInduk.toLowerCase().includes(absenSiswaSearch.toLowerCase()));
+                          }
+                          return true;
+                        }).length
+                      })</h4>
+                      <span className="text-[10px] font-bold text-slate-400">Pilih status untuk otomatis menyimpan</span>
+                    </div>
+
+                    {(() => {
+                      const filteredList = myStudents.filter(s => {
+                        if (absenSiswaSearch.trim()) {
+                          return s.nama.toLowerCase().includes(absenSiswaSearch.toLowerCase()) ||
+                                 (s.noInduk && s.noInduk.toLowerCase().includes(absenSiswaSearch.toLowerCase()));
+                        }
+                        return true;
+                      });
+
+                      if (filteredList.length === 0) {
+                        return (
+                          <div className="p-12 text-center text-slate-400 text-xs">
+                            {absenSiswaSearch.trim() ? 'Tidak ada santri yang cocok dengan pencarian.' : 'Halaqoh ini belum memiliki data santri.'}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="divide-y divide-slate-100">
+                          {filteredList.map((siswa) => {
+                            const attRecord = studentAttendances.filter(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal)[0];
+                            const currentStatus = attRecord?.status || null;
+                            const isUpdating = isUpdatingAttendance === siswa.id;
+
+                            return (
+                              <div key={siswa.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 hover:bg-slate-50/50 transition duration-150">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <h5 className="text-sm font-black text-slate-800 uppercase">{siswa.nama}</h5>
+                                    {isUpdating && (
+                                      <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                                    )}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-500 text-xs font-medium">
+                                    <span>No Induk: <span className="font-bold font-mono text-slate-700">{siswa.noInduk || '-'}</span></span>
+                                    <span className="text-slate-300">•</span>
+                                    <span>Kelas: <span className="font-bold text-slate-700">{siswa.kelasNama || 'N/A'}</span></span>
+                                  </div>
+                                </div>
+
+                                {/* Attendance Status Picker */}
+                                <div className="flex items-center gap-1.5 self-start sm:self-center">
+                                  {[
+                                    { status: 'Hadir', label: 'Hadir', color: 'bg-emerald-600 text-white border-emerald-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700' },
+                                    { status: 'Sakit', label: 'Sakit', color: 'bg-amber-600 text-white border-amber-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700' },
+                                    { status: 'Izin', label: 'Izin', color: 'bg-sky-600 text-white border-sky-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700' },
+                                    { status: 'Alpa', label: 'Alpa', color: 'bg-rose-600 text-white border-rose-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700' }
+                                  ].map((opt) => {
+                                    const isSelected = currentStatus === opt.status;
+                                    return (
+                                      <button
+                                        key={opt.status}
+                                        type="button"
+                                        disabled={isUpdating}
+                                        onClick={() => handleUpdateStudentAttendance(siswa, opt.status as any)}
+                                        className={`px-3 py-1.5 rounded-xl border text-[10px] font-black tracking-wider uppercase transition cursor-pointer ${
+                                          isSelected ? opt.color : opt.inactiveColor
+                                        }`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {/* TAB: INPUT HARIAN */}
@@ -1549,7 +1948,7 @@ export default function MusyrifDashboard({
                           <button
                             id="btn-share-wa"
                             onClick={handleShareWA}
-                            disabled={dailyRecapLogs.length === 0}
+                            disabled={selectBulanStudents.length === 0}
                             className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
                             title="Bagikan Laporan ke WhatsApp"
                           >
@@ -1559,7 +1958,7 @@ export default function MusyrifDashboard({
                           <button
                             id="btn-print-pdf"
                             onClick={handleCetakPDF}
-                            disabled={dailyRecapLogs.length === 0}
+                            disabled={selectBulanStudents.length === 0}
                             className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
                             title="Cetak/Simpan PDF Laporan"
                           >
@@ -1995,7 +2394,7 @@ export default function MusyrifDashboard({
 
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-600 block">
-                  {selectedKategori ? `Materi ${selectedKategori}` : 'Materi Setoran (Surat & Ayat)'}
+                  {selectedKategori ? `Materi ${selectedKategori}` : 'Materi Setoran'}
                 </label>
                 <input
                   type="text"
@@ -2008,9 +2407,11 @@ export default function MusyrifDashboard({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-600 block">Evaluasi (Tahsin & Tajwid)</label>
+                <label className="text-xs font-bold text-slate-600 block">
+                  {selectedKategori === 'Tugas Tilawah' ? 'Keterangan' : 'Evaluasi / Catatan'}
+                </label>
                 <textarea
-                  placeholder="Contoh: Makharijul huruf cukup baik, pertahankan dengung bighunnah pada ayat 4."
+                  placeholder={selectedKategori === 'Tugas Tilawah' ? 'Masukkan keterangan tugas tilawah siswa...' : 'Contoh: Makharijul huruf cukup baik, pertahankan dengung bighunnah pada ayat 4.'}
                   value={formEvaluasi}
                   onChange={(e) => setFormEvaluasi(e.target.value)}
                   rows={3}
@@ -2048,9 +2449,10 @@ export default function MusyrifDashboard({
 
       {/* Mobile Bottom Navigation Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden">
-        <div className="grid grid-cols-4 h-16 max-w-md mx-auto">
+        <div className="grid grid-cols-5 h-16 max-w-md mx-auto">
           {[
             { id: 'absen_saya', label: 'Absen Saya', icon: UserCheck },
+            { id: 'absen_siswa', label: 'Absen Siswa', icon: CheckCircle },
             { id: 'input_siswa', label: 'Input Harian', icon: BookOpen },
             { id: 'rekap_hari', label: 'Rekap Harian', icon: Calendar },
             { id: 'rekap_bulan', label: 'Rekap Bulanan', icon: TrendingUp }

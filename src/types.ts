@@ -50,6 +50,18 @@ export interface CatatanHarian {
   program?: 'dasar' | 'tahfidz';
 }
 
+export interface AbsenSiswa {
+  id: string;
+  tanggal: string; // YYYY-MM-DD
+  siswaId: string;
+  siswaNama: string;
+  noInduk: string;
+  kelasId: string;
+  kelasNama: string;
+  status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa';
+  musyrifId: string;
+}
+
 export interface SystemSettings {
   adminPassword?: string;
 }

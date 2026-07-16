@@ -67,6 +67,17 @@ service cloud.firestore {
         && data.fotoUrl is string && data.fotoUrl.size() <= 5000000;
     }
 
+    function isValidAbsenSiswa(data) {
+      return data.tanggal is string && data.tanggal.size() <= 50
+        && data.siswaId is string && data.siswaId.size() <= 128
+        && data.siswaNama is string && data.siswaNama.size() <= 150
+        && data.noInduk is string && data.noInduk.size() <= 50
+        && data.kelasId is string && data.kelasId.size() <= 128
+        && data.kelasNama is string && data.kelasNama.size() <= 100
+        && (data.status == 'Hadir' || data.status == 'Sakit' || data.status == 'Izin' || data.status == 'Alpa')
+        && data.musyrifId is string && data.musyrifId.size() <= 128;
+    }
+
     // Rules for Settings Collection
     match /settings/{settingId} {
       allow read: if true;
@@ -107,6 +118,12 @@ service cloud.firestore {
     match /absen_musyrif/{absenId} {
       allow read: if true;
       allow write: if isValidId(absenId) && (request.method == 'delete' || isValidAbsenMusyrif(request.resource.data));
+    }
+
+    // Rules for Absen Siswa Collection
+    match /absen_siswa/{absenId} {
+      allow read: if true;
+      allow write: if isValidId(absenId) && (request.method == 'delete' || isValidAbsenSiswa(request.resource.data));
     }
   }
 }
