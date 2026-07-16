@@ -4,6 +4,7 @@ import {
   Trash2, LogOut, ChevronRight, Filter, AlertCircle, Sparkles, Smile, Info, BookOpen,
   Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search
 } from 'lucide-react';
+import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { db } from '../firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, where } from 'firebase/firestore';
 import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi } from '../types';
@@ -991,8 +992,8 @@ export default function MusyrifDashboard({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-700 border border-emerald-500/50 flex flex-col items-center justify-center">
-                <BookOpen className="w-5 h-5 text-emerald-50" />
+              <div className="w-10 h-10 rounded-lg overflow-hidden border border-emerald-500/50">
+                <img src={logoMinSukoharjo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               </div>
               <div>
                 <span className="font-extrabold text-xs sm:text-sm tracking-wide leading-none block uppercase text-emerald-100">

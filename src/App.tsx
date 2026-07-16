@@ -5,6 +5,7 @@ import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian } from './types';
 import HomeView from './components/HomeView';
 import AdminDashboard from './components/AdminDashboard';
 import MusyrifDashboard from './components/MusyrifDashboard';
+import logoMinSukoharjo from './assets/logo_min_sukoharjo.jpg';
 
 export default function App() {
   const [appState, setAppState] = useState<'loading' | 'home' | 'admin' | 'musyrif'>('loading');
@@ -132,7 +133,9 @@ export default function App() {
         {/* Modern clean Islamic pattern spinner */}
         <div className="relative w-16 h-16 flex items-center justify-center">
           <div className="absolute inset-0 rounded-full border-4 border-emerald-500/30 border-t-emerald-500 animate-spin" />
-          <span className="text-xl font-bold text-emerald-500">📖</span>
+          <div className="w-10 h-10 rounded-full overflow-hidden">
+            <img src={logoMinSukoharjo} alt="MIN 6" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          </div>
         </div>
         <div className="text-center">
           <h3 className="font-extrabold text-sm sm:text-base tracking-wider text-slate-350">MIN 6 SUKOHARJO</h3>

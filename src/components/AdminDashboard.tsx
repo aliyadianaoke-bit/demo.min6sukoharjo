@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { 
-  Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
-  ChevronRight, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
-  Calendar, Clock, Camera, Search, RefreshCw, AlertCircle
+   Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
+   ChevronRight, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
+   Calendar, Clock, Camera, Search, RefreshCw, AlertCircle
 } from 'lucide-react';
+import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { db } from '../firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian } from '../types';
@@ -843,8 +844,8 @@ export default function AdminDashboard({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-700 border border-emerald-500 flex items-center justify-center">
-                <Database className="w-5 h-5 text-emerald-100" />
+              <div className="w-10 h-10 rounded-lg overflow-hidden border border-emerald-500/50">
+                <img src={logoMinSukoharjo} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               </div>
               <div>
                 <span className="font-extrabold text-sm sm:text-base leading-none block uppercase">

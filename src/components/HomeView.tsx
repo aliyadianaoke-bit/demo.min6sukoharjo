@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { BookOpen, LogIn, Lock, User, Sparkles, Heart, Target, Award, ShieldCheck, HelpCircle } from 'lucide-react';
+import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 
 interface HomeViewProps {
   onLoginSuccess: (role: 'admin' | 'musyrif', userId?: string, userNama?: string) => void;
@@ -47,8 +48,8 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList }: Hom
       {/* Header Bar */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-emerald-100 shadow-xs px-4 sm:px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-200">
-            <BookOpen className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden shadow-md shadow-emerald-200">
+            <img src={logoMinSukoharjo} alt="Logo MIN 6 Sukoharjo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
           </div>
           <div>
             <h1 className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide leading-tight">
