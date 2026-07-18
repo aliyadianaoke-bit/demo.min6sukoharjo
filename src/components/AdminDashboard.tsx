@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
    Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
    ChevronRight, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
-   Calendar, Clock, Camera, Search, RefreshCw, AlertCircle
+   Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { db } from '../firebase';
@@ -96,6 +96,21 @@ export default function AdminDashboard({
   const [absenEndDateFilter, setAbsenEndDateFilter] = useState('');
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [loadingAbsen, setLoadingAbsen] = useState(false);
+
+  // 8. Bulk Import / Update States
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkParsedData, setBulkParsedData] = useState<any[]>([]);
+  const [bulkImportProgress, setBulkImportProgress] = useState<{current: number; total: number} | null>(null);
+  const [bulkImportError, setBulkImportError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  // 9. Bulk Assign Halaqoh States for Checklist
+  const [selectedSiswaIds, setSelectedSiswaIds] = useState<string[]>([]);
+  const [bulkTargetHalaqohId, setBulkTargetHalaqohId] = useState<string>('');
+  const [isBulkAssigning, setIsBulkAssigning] = useState(false);
+  const [siswaSearch, setSiswaSearch] = useState('');
+  const [siswaHalaqohFilter, setSiswaHalaqohFilter] = useState('all');
 
   // Sync attendance logs when the administrator views the 'absen' tab
   React.useEffect(() => {
@@ -346,6 +361,344 @@ export default function AdminDashboard({
       showFeedback('Gagal menyimpan siswa: ' + err.message, 'danger');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // --- BULK STUDENT IMPORT HELPERS ---
+  const parseCSV = (text: string): string[][] => {
+    const result: string[][] = [];
+    let row: string[] = [];
+    let inQuotes = false;
+    let currentValue = "";
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          currentValue += '"';
+          i++; // skip next quote
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        row.push(currentValue);
+        currentValue = "";
+      } else if (char === ';' && !inQuotes) {
+        // support semicolon as separator (common in Indonesian Excel regional settings)
+        row.push(currentValue);
+        currentValue = "";
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (char === '\r' && nextChar === '\n') {
+          i++;
+        }
+        row.push(currentValue);
+        result.push(row);
+        row = [];
+        currentValue = "";
+      } else {
+        currentValue += char;
+      }
+    }
+    if (currentValue || row.length > 0) {
+      row.push(currentValue);
+      result.push(row);
+    }
+    // Trim spaces and filter out empty rows
+    return result
+      .map(r => r.map(cell => cell.trim().replace(/^"|"$/g, '').trim()))
+      .filter(r => r.some(cell => cell !== ""));
+  };
+
+  const processParsedRows = (rawRows: string[][]): any[] => {
+    // Filter out metadata rows like sep=; or sep=, or completely empty lines
+    const cleanRawRows = rawRows.filter(row => {
+      if (row.length === 0) return false;
+      if (row.some(cell => cell.toLowerCase().startsWith('sep='))) {
+        return false;
+      }
+      return true;
+    });
+
+    let startIndex = 0;
+    if (cleanRawRows.length > 0) {
+      const firstRow = cleanRawRows[0].map(cell => cell.toLowerCase().trim());
+      if (firstRow.some(cell => cell.includes('induk') || cell.includes('nama') || cell.includes('kelas') || cell.includes('halaqoh'))) {
+        startIndex = 1; // Skip header row
+      }
+    }
+
+    const processed: any[] = [];
+
+    for (let i = startIndex; i < cleanRawRows.length; i++) {
+      const cols = cleanRawRows[i];
+      if (cols.length < 2) continue; // Must have at least No Induk & Nama
+
+      const noInduk = cols[0] ? cols[0].trim() : '';
+      const nama = cols[1] ? cols[1].trim() : '';
+      const kelasNamaRaw = cols[2] ? cols[2].trim() : '';
+      const halaqohNamaRaw = cols[3] ? cols[3].trim() : '';
+      
+      const dasarRaw = cols[4] ? cols[4].trim().toLowerCase() : '';
+      const tahfidzRaw = cols[5] ? cols[5].trim().toLowerCase() : '';
+
+      const isKelasDasar = dasarRaw === 'y' || dasarRaw === 'ya' || dasarRaw === 'yes' || dasarRaw === '1' || dasarRaw === 'true';
+      const isKelasTahfidz = tahfidzRaw === 'y' || tahfidzRaw === 'ya' || tahfidzRaw === 'yes' || tahfidzRaw === '1' || tahfidzRaw === 'true';
+
+      const rowErrors: string[] = [];
+      if (!noInduk) rowErrors.push("No Induk wajib diisi.");
+      if (!nama) rowErrors.push("Nama Lengkap wajib diisi.");
+
+      // Match class
+      let matchedClassId = '';
+      let isNewClass = false;
+      if (kelasNamaRaw) {
+        const cls = classes.find(c => c.nama.toLowerCase().trim() === kelasNamaRaw.toLowerCase().trim());
+        if (cls) {
+          matchedClassId = cls.id;
+        } else {
+          isNewClass = true;
+        }
+      } else {
+        rowErrors.push("Nama Kelas wajib diisi.");
+      }
+
+      // Match halaqoh
+      let matchedHalaqohId = '';
+      let isNewHalaqoh = false;
+      if (halaqohNamaRaw) {
+        const hq = halaqohs.find(h => h.nama.toLowerCase().trim() === halaqohNamaRaw.toLowerCase().trim());
+        if (hq) {
+          matchedHalaqohId = hq.id;
+        } else {
+          isNewHalaqoh = true;
+        }
+      }
+
+      // Check if student with same noInduk already exists
+      const existingStudent = students.find(s => s.noInduk === noInduk);
+      const action = existingStudent ? 'update' : 'insert';
+
+      processed.push({
+        noInduk,
+        nama,
+        kelasNamaRaw,
+        halaqohNamaRaw,
+        isKelasDasar,
+        isKelasTahfidz,
+        action,
+        matchedClassId,
+        matchedHalaqohId,
+        isNewClass,
+        isNewHalaqoh,
+        isValid: rowErrors.length === 0,
+        errors: rowErrors
+      });
+    }
+
+    return processed;
+  };
+
+  const handleDownloadTemplate = () => {
+    const headers = "No Induk;Nama;Nama Kelas;Nama Halaqoh;Kelas Dasar (Y/T);Kelas Tahfidz (Y/T)";
+    const exampleRows = [
+      "1001;Ahmad Fauzan;Kelas 1A;Halaqoh Al-Mulk;Y;T",
+      "1002;Muhammad Ibrahim;Kelas 2B;Halaqoh An-Naba;T;Y",
+      "1003;Siti Aminah;Kelas 3A;;Y;Y"
+    ];
+    // Add sep=; instruction line for Excel compatibility
+    const csvContent = "\ufeff" + ["sep=;", headers, ...exampleRows].join("\n"); // UTF-8 BOM for Excel
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "template_input_siswa.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showFeedback("Template Excel (CSV) diunduh! Kolom otomatis terpisah di Excel.");
+  };
+
+  const handleFileSelected = (file: File) => {
+    setBulkFile(file);
+    setBulkImportError(null);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (!text) {
+        setBulkImportError("Gagal membaca file.");
+        return;
+      }
+      try {
+        const rawRows = parseCSV(text);
+        const processed = processParsedRows(rawRows);
+        setBulkParsedData(processed);
+      } catch (err: any) {
+        setBulkImportError("Gagal mengurai file CSV: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const onDragLeave = () => {
+    setDragOver(false);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileSelected(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleCommitImport = async () => {
+    if (bulkParsedData.length === 0) return;
+    setBulkImportProgress({ current: 0, total: bulkParsedData.length });
+    setBulkImportError(null);
+    setIsSaving(true);
+
+    try {
+      // 1. Identify all unique new classes to create
+      const newClassNames = Array.from(new Set(
+        bulkParsedData
+          .filter(row => !row.matchedClassId && row.kelasNamaRaw && row.isValid)
+          .map(row => row.kelasNamaRaw.trim())
+      )) as string[];
+
+      const createdClassesMap: { [key: string]: { id: string, nama: string } } = {};
+      for (const className of newClassNames) {
+        const existing = classes.find(c => c.nama.toLowerCase() === className.toLowerCase());
+        if (existing) {
+          createdClassesMap[className.toLowerCase()] = { id: existing.id, nama: existing.nama };
+        } else {
+          const docRef = await addDoc(collection(db, 'classes'), { nama: className });
+          createdClassesMap[className.toLowerCase()] = { id: docRef.id, nama: className };
+        }
+      }
+
+      // 2. Identify all unique new halaqohs to create
+      const newHalaqohNames = Array.from(new Set(
+        bulkParsedData
+          .filter(row => !row.matchedHalaqohId && row.halaqohNamaRaw && row.isValid)
+          .map(row => row.halaqohNamaRaw.trim())
+      )) as string[];
+
+      const createdHalaqohsMap: { [key: string]: { id: string, nama: string } } = {};
+      for (const hqName of newHalaqohNames) {
+        const existing = halaqohs.find(h => h.nama.toLowerCase() === hqName.toLowerCase());
+        if (existing) {
+          createdHalaqohsMap[hqName.toLowerCase()] = { id: existing.id, nama: existing.nama };
+        } else {
+          const docRef = await addDoc(collection(db, 'halaqoh'), { 
+            nama: hqName, 
+            musyrifId: '', 
+            musyrifNama: 'Belum Ditentukan',
+            musyrifIds: []
+          });
+          createdHalaqohsMap[hqName.toLowerCase()] = { id: docRef.id, nama: hqName };
+        }
+      }
+
+      // 3. Insert or Update Students
+      let count = 0;
+      for (const row of bulkParsedData) {
+        if (!row.isValid) {
+          count++;
+          setBulkImportProgress({ current: count, total: bulkParsedData.length });
+          continue; // Skip invalid rows
+        }
+
+        // Resolve final class ID & Name
+        let finalClassId = row.matchedClassId;
+        let finalClassName = row.kelasNamaRaw;
+        if (!finalClassId && row.kelasNamaRaw) {
+          const created = createdClassesMap[row.kelasNamaRaw.toLowerCase()];
+          if (created) {
+            finalClassId = created.id;
+            finalClassName = created.nama;
+          }
+        }
+
+        // Resolve final halaqoh ID & Name
+        let finalHalaqohId = row.matchedHalaqohId;
+        let finalHalaqohName = row.halaqohNamaRaw || 'Belum Ada Halaqoh';
+        if (!finalHalaqohId && row.halaqohNamaRaw) {
+          const created = createdHalaqohsMap[row.halaqohNamaRaw.toLowerCase()];
+          if (created) {
+            finalHalaqohId = created.id;
+            finalHalaqohName = created.nama;
+          }
+        }
+
+        const payload = {
+          noInduk: row.noInduk,
+          nama: row.nama,
+          kelasId: finalClassId || '',
+          kelasNama: finalClassName || '',
+          halaqohId: finalHalaqohId || '',
+          halaqohNama: finalHalaqohName,
+          isKelasDasar: row.isKelasDasar,
+          isKelasTahfidz: row.isKelasTahfidz
+        };
+
+        const existingStudent = students.find(s => s.noInduk === row.noInduk);
+        if (existingStudent) {
+          // Update existing
+          await updateDoc(doc(db, 'students', existingStudent.id), payload);
+        } else {
+          // Create new
+          await addDoc(collection(db, 'students'), payload);
+        }
+
+        count++;
+        setBulkImportProgress({ current: count, total: bulkParsedData.length });
+      }
+
+      await refreshData();
+      showFeedback(`Berhasil mengimpor/memperbarui ${bulkParsedData.length} data siswa!`);
+      setShowBulkModal(false);
+      setBulkFile(null);
+      setBulkParsedData([]);
+      setBulkImportProgress(null);
+    } catch (err: any) {
+      setBulkImportError(err.message || 'Terjadi kesalahan saat mengimpor data.');
+      showFeedback('Gagal mengimpor data masal: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 9. Bulk Assign Halaqoh for Selected Students
+  const handleBulkAssignHalaqoh = async () => {
+    if (selectedSiswaIds.length === 0) return;
+    setIsBulkAssigning(true);
+    try {
+      const hq = halaqohs.find(h => h.id === bulkTargetHalaqohId);
+      const targetHalaqohNama = hq ? hq.nama : 'Belum Ada Halaqoh';
+      const targetHalaqohId = bulkTargetHalaqohId || '';
+
+      for (const id of selectedSiswaIds) {
+        await updateDoc(doc(db, 'students', id), {
+          halaqohId: targetHalaqohId,
+          halaqohNama: targetHalaqohNama
+        });
+      }
+
+      await refreshData();
+      showFeedback(`Berhasil mengatur halaqoh untuk ${selectedSiswaIds.length} siswa!`);
+      setSelectedSiswaIds([]);
+      setBulkTargetHalaqohId('');
+    } catch (err: any) {
+      showFeedback('Gagal mengatur halaqoh siswa secara massal: ' + err.message, 'danger');
+    } finally {
+      setIsBulkAssigning(false);
     }
   };
 
@@ -1058,112 +1411,265 @@ export default function AdminDashboard({
           )}
 
           {/* TAB 2: SISWA */}
-          {activeTab === 'siswa' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-extrabold text-slate-800">Daftar Siswa</h3>
-                  <p className="text-xs text-slate-500">Kelola database siswa, no induk, dan pemetaan halaqoh</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setModalType('add');
-                    setSiswaNoInduk('');
-                    setSiswaNama('');
-                    setSiswaKelasId('');
-                    setSiswaHalaqohId('');
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Tambah Siswa</span>
-                </button>
-              </div>
+          {activeTab === 'siswa' && (() => {
+            const filteredStudents = students.filter(sys => {
+              const matchesSearch = sys.nama.toLowerCase().includes(siswaSearch.toLowerCase()) || 
+                                    sys.noInduk.toLowerCase().includes(siswaSearch.toLowerCase()) ||
+                                    (sys.kelasNama || '').toLowerCase().includes(siswaSearch.toLowerCase());
+              
+              const matchesHalaqoh = siswaHalaqohFilter === 'all' || 
+                                     (siswaHalaqohFilter === 'none' && (!sys.halaqohId || sys.halaqohId === '')) || 
+                                     sys.halaqohId === siswaHalaqohFilter;
+                                     
+              return matchesSearch && matchesHalaqoh;
+            });
 
-              <div className="overflow-x-auto border border-slate-100 rounded-2xl">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-600 border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider">
-                      <th className="py-3.5 px-4 w-12">NO</th>
-                      <th className="py-3.5 px-4 w-28">NO INDUK</th>
-                      <th className="py-3.5 px-4">NAMA LENGKAP SISWA</th>
-                      <th className="py-3.5 px-4">PROGRAM</th>
-                      <th className="py-3.5 px-4">KELAS</th>
-                      <th className="py-3.5 px-4">HALAQOH QUR'AN</th>
-                      <th className="py-3.5 px-4 text-right w-24">OPSI</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                    {students.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">Belum ada data siswa.</td>
+            return (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-1 rounded-2xl">
+                  <div>
+                    <h3 className="text-lg font-extrabold text-slate-800">Daftar Siswa</h3>
+                    <p className="text-xs text-slate-500">Kelola database siswa, no induk, dan pemetaan halaqoh</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-250 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span>Template Excel</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowBulkModal(true);
+                        setBulkFile(null);
+                        setBulkParsedData([]);
+                        setBulkImportProgress(null);
+                        setBulkImportError(null);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span>Update Massal (Excel/CSV)</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setModalType('add');
+                        setSiswaNoInduk('');
+                        setSiswaNama('');
+                        setSiswaKelasId('');
+                        setSiswaHalaqohId('');
+                        setSiswaIsKelasDasar(false);
+                        setSiswaIsKelasTahfidz(false);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-750 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 shrink-0" />
+                      <span>Tambah Siswa</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Search & Filter Controls */}
+                <div className="flex flex-col md:flex-row gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <div className="relative flex-1">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                      <Search className="h-4 w-4 text-slate-400" />
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Cari siswa berdasarkan nama, no induk, atau kelas..."
+                      value={siswaSearch}
+                      onChange={(e) => setSiswaSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-slate-600 shrink-0">Filter Halaqoh:</label>
+                    <select
+                      value={siswaHalaqohFilter}
+                      onChange={(e) => {
+                        setSiswaHalaqohFilter(e.target.value);
+                        setSelectedSiswaIds([]); // clear checkboxes on filter change
+                      }}
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs cursor-pointer min-w-44"
+                    >
+                      <option value="all">Semua Halaqoh</option>
+                      <option value="none">Belum Ada Halaqoh</option>
+                      {halaqohs.map(h => (
+                        <option key={h.id} value={h.id}>{h.nama}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Bulk Action Panel */}
+                {selectedSiswaIds.length > 0 && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-indigo-50 border border-indigo-150 rounded-2xl animate-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                        {selectedSiswaIds.length}
+                      </div>
+                      <div>
+                        <p className="text-xs font-extrabold text-indigo-900">Siswa Terpilih</p>
+                        <p className="text-[10px] text-indigo-600">Pilih halaqoh sasaran untuk mengatur penempatan siswa terpilih secara sekaligus</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={bulkTargetHalaqohId}
+                        onChange={(e) => setBulkTargetHalaqohId(e.target.value)}
+                        className="px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none transition shadow-2xs cursor-pointer text-indigo-950 font-bold min-w-44"
+                      >
+                        <option value="">-- Atur Tanpa Halaqoh --</option>
+                        {halaqohs.map(h => (
+                          <option key={h.id} value={h.id}>Pindahkan ke: {h.nama}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={handleBulkAssignHalaqoh}
+                        disabled={isBulkAssigning}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-sm"
+                      >
+                        {isBulkAssigning ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Memproses...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            <span>Terapkan Halaqoh</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setSelectedSiswaIds([])}
+                        disabled={isBulkAssigning}
+                        className="px-3 py-2 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 font-extrabold text-xs rounded-xl transition cursor-pointer"
+                      >
+                        Batal
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-600 border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider">
+                        <th className="py-3.5 px-4 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={filteredStudents.length > 0 && selectedSiswaIds.length === filteredStudents.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedSiswaIds(filteredStudents.map(s => s.id));
+                              } else {
+                                setSelectedSiswaIds([]);
+                              }
+                            }}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                          />
+                        </th>
+                        <th className="py-3.5 px-4 w-12">NO</th>
+                        <th className="py-3.5 px-4 w-28">NO INDUK</th>
+                        <th className="py-3.5 px-4">NAMA LENGKAP SISWA</th>
+                        <th className="py-3.5 px-4">PROGRAM</th>
+                        <th className="py-3.5 px-4">KELAS</th>
+                        <th className="py-3.5 px-4">HALAQOH QUR'AN</th>
+                        <th className="py-3.5 px-4 text-right w-24">OPSI</th>
                       </tr>
-                    ) : (
-                      students.map((sys, idx) => (
-                        <tr key={sys.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-mono font-bold text-slate-400">{idx + 1}</td>
-                          <td className="py-3 px-4 font-mono font-semibold text-slate-800">{sys.noInduk}</td>
-                          <td className="py-3 px-4 font-bold text-slate-900">{sys.nama}</td>
-                          <td className="py-3 px-4">
-                            <div className="flex flex-wrap gap-1">
-                              {sys.isKelasDasar && (
-                                <span className="px-2 py-0.5 bg-sky-50 border border-sky-200 text-sky-700 rounded-lg text-[10px] font-bold">
-                                  Dasar
-                                </span>
-                              )}
-                              {sys.isKelasTahfidz && (
-                                <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-[10px] font-bold">
-                                  Tahfidz
-                                </span>
-                              )}
-                              {!sys.isKelasDasar && !sys.isKelasTahfidz && (
-                                <span className="text-slate-400 italic text-[11px]">-</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium">
-                              {sys.kelasNama || 'N/A'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="font-semibold text-indigo-700 bg-indigo-50 border border-indigo-150 px-2.5 py-0.5 rounded-full text-[11px]">
-                              {sys.halaqohNama || 'Belum Ada Halaqoh'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="inline-flex gap-1.5">
-                              <button
-                                onClick={() => {
-                                  setModalType('edit');
-                                  setEditId(sys.id);
-                                  setSiswaNoInduk(sys.noInduk);
-                                  setSiswaNama(sys.nama);
-                                  setSiswaKelasId(sys.kelasId);
-                                  setSiswaHalaqohId(sys.halaqohId);
-                                  setSiswaIsKelasDasar(sys.isKelasDasar || false);
-                                  setSiswaIsKelasTahfidz(sys.isKelasTahfidz || false);
-                                }}
-                                className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteObj('students', sys.id)}
-                                className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                      {filteredStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">Data siswa tidak ditemukan.</td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        filteredStudents.map((sys, idx) => {
+                          const isSelected = selectedSiswaIds.includes(sys.id);
+                          return (
+                            <tr key={sys.id} className={`hover:bg-slate-50/50 ${isSelected ? 'bg-indigo-50/30' : ''}`}>
+                              <td className="py-3 px-4 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    if (isSelected) {
+                                      setSelectedSiswaIds(selectedSiswaIds.filter(id => id !== sys.id));
+                                    } else {
+                                      setSelectedSiswaIds([...selectedSiswaIds, sys.id]);
+                                    }
+                                  }}
+                                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                                />
+                              </td>
+                              <td className="py-3 px-4 font-mono font-bold text-slate-400">{idx + 1}</td>
+                              <td className="py-3 px-4 font-mono font-semibold text-slate-800">{sys.noInduk}</td>
+                              <td className="py-3 px-4 font-bold text-slate-900">{sys.nama}</td>
+                              <td className="py-3 px-4">
+                                <div className="flex flex-wrap gap-1">
+                                  {sys.isKelasDasar && (
+                                    <span className="px-2 py-0.5 bg-sky-50 border border-sky-200 text-sky-700 rounded-lg text-[10px] font-bold">
+                                      Dasar
+                                    </span>
+                                  )}
+                                  {sys.isKelasTahfidz && (
+                                    <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-[10px] font-bold">
+                                      Tahfidz
+                                    </span>
+                                  )}
+                                  {!sys.isKelasDasar && !sys.isKelasTahfidz && (
+                                    <span className="text-slate-400 italic text-[11px]">-</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-[11px] font-medium">
+                                  {sys.kelasNama || 'N/A'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-indigo-700 bg-indigo-50 border border-indigo-150 px-2.5 py-0.5 rounded-full text-[11px]">
+                                  {sys.halaqohNama || 'Belum Ada Halaqoh'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="inline-flex gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      setModalType('edit');
+                                      setEditId(sys.id);
+                                      setSiswaNoInduk(sys.noInduk);
+                                      setSiswaNama(sys.nama);
+                                      setSiswaKelasId(sys.kelasId);
+                                      setSiswaHalaqohId(sys.halaqohId);
+                                      setSiswaIsKelasDasar(sys.isKelasDasar || false);
+                                      setSiswaIsKelasTahfidz(sys.isKelasTahfidz || false);
+                                    }}
+                                    className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteObj('students', sys.id)}
+                                    className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* TAB 3: PENGAJAR */}
           {activeTab === 'pengajar' && (
@@ -1908,6 +2414,271 @@ export default function AdminDashboard({
 
         </div>
       </div>
+
+      {/* BULK IMPORT MODAL */}
+      {showBulkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden border border-slate-100 flex flex-col animate-in fade-in duration-200">
+            
+            {/* Header */}
+            <div className="bg-indigo-900 text-white p-5 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-extrabold uppercase tracking-wider flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-300" />
+                  <span>Update & Impor Massal Data Siswa</span>
+                </h3>
+                <p className="text-[10px] text-indigo-200 mt-0.5">Unggah template CSV/Excel untuk sinkronisasi database siswa secara instan</p>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isSaving) {
+                    setShowBulkModal(false);
+                    setBulkFile(null);
+                    setBulkParsedData([]);
+                    setBulkImportProgress(null);
+                  }
+                }}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/25 flex items-center justify-center text-white cursor-pointer transition disabled:opacity-50"
+                disabled={isSaving}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              
+              {/* Petunjuk & Download Template */}
+              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h4 className="text-xs font-bold text-amber-800">Petunjuk Pengisian Template Excel/CSV:</h4>
+                  <ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">
+                    <li>Gunakan template dengan pembatas titik koma (Semicolon <strong>;</strong>) agar otomatis terbagi ke dalam kolom-kolom terpisah yang rapi di Microsoft Excel secara langsung.</li>
+                    <li>Sistem otomatis mencocokkan <strong className="text-amber-900">No Induk</strong>. Jika sudah ada, data siswa tersebut akan diperbarui. Jika belum ada, siswa baru akan ditambahkan.</li>
+                    <li>Jika <strong className="text-amber-900">Nama Kelas</strong> atau <strong className="text-amber-900">Nama Halaqoh</strong> belum ada di database, sistem akan otomatis membuatnya baru!</li>
+                    <li>Kolom <strong className="text-amber-900">Kelas Dasar</strong> dan <strong className="text-amber-900">Kelas Tahfidz</strong> diisi dengan <strong className="font-extrabold">Y</strong> (Ya/Ikut) atau <strong className="font-extrabold">T</strong> (Tidak/Bukan).</li>
+                  </ul>
+                </div>
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="sm:shrink-0 inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-amber-100 border border-amber-200 text-amber-800 font-extrabold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Unduh Contoh Template</span>
+                </button>
+              </div>
+
+              {/* Upload Target */}
+              {!bulkFile ? (
+                <div
+                  onDragOver={onDragOver}
+                  onDragLeave={onDragLeave}
+                  onDrop={onDrop}
+                  className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition ${
+                    dragOver 
+                      ? 'border-indigo-500 bg-indigo-50/50' 
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100/50'
+                  }`}
+                  onClick={() => document.getElementById('bulk-file-input')?.click()}
+                >
+                  <input
+                    id="bulk-file-input"
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleFileSelected(e.target.files[0]);
+                      }
+                    }}
+                  />
+                  <Upload className="w-12 h-12 mx-auto text-slate-400 mb-3" />
+                  <p className="text-sm font-bold text-slate-700">Tarik & lepas file .csv di sini, atau klik untuk memilih file</p>
+                  <p className="text-xs text-slate-400 mt-1">Hanya mendukung file CSV dengan enkoding UTF-8 (Pemisah Koma atau Titik Koma)</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* File Info */}
+                  <div className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-100 rounded-2xl">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-indigo-100 text-indigo-700 rounded-xl">
+                        <FileSpreadsheet className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">{bulkFile.name}</p>
+                        <p className="text-[10px] text-slate-400">Ukuran: {(bulkFile.size / 1024).toFixed(2)} KB • Terdeteksi {bulkParsedData.length} baris data</p>
+                      </div>
+                    </div>
+                    {!isSaving && (
+                      <button
+                        onClick={() => {
+                          setBulkFile(null);
+                          setBulkParsedData([]);
+                          setBulkImportError(null);
+                        }}
+                        className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer px-3 py-1.5 rounded-lg hover:bg-rose-50"
+                      >
+                        Ganti File
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Progress Bar */}
+                  {bulkImportProgress && (
+                    <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-indigo-900">
+                        <span>Sedang Memproses Data...</span>
+                        <span>{bulkImportProgress.current} / {bulkImportProgress.total} ({Math.round((bulkImportProgress.current / bulkImportProgress.total) * 100)}%)</span>
+                      </div>
+                      <div className="w-full bg-indigo-200 h-2.5 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                          style={{ width: `${(bulkImportProgress.current / bulkImportProgress.total) * 100}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-[10px] text-indigo-600 font-medium animate-pulse">Mohon tunggu, sistem sedang memperbarui database Firestore. Jangan tutup dialog ini.</p>
+                    </div>
+                  )}
+
+                  {/* Error Indicator */}
+                  {bulkImportError && (
+                    <div className="p-3.5 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-2 text-rose-700 text-xs font-semibold">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{bulkImportError}</span>
+                    </div>
+                  )}
+
+                  {/* Preview Table */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">Pratinjau Hasil Impor:</h4>
+                      <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Baru</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span> Update</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span> Buat Baru</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Tidak Valid</span>
+                      </div>
+                    </div>
+
+                    <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-64 overflow-y-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold border-b border-slate-100">
+                          <tr>
+                            <th className="py-2.5 px-3 w-10">NO</th>
+                            <th className="py-2.5 px-3">NO INDUK</th>
+                            <th className="py-2.5 px-3">NAMA</th>
+                            <th className="py-2.5 px-3">KELAS</th>
+                            <th className="py-2.5 px-3">HALAQOH</th>
+                            <th className="py-2.5 px-3">PROG</th>
+                            <th className="py-2.5 px-3 text-center">STATUS</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                          {bulkParsedData.map((row, index) => (
+                            <tr key={index} className={`hover:bg-slate-50/50 ${!row.isValid ? 'bg-rose-50/20' : ''}`}>
+                              <td className="py-2 px-3 text-slate-400 font-mono text-[11px]">{index + 1}</td>
+                              <td className="py-2 px-3 font-mono font-bold text-slate-900">{row.noInduk || <span className="text-rose-500 italic">Kosong</span>}</td>
+                              <td className="py-2 px-3 font-bold text-slate-800">{row.nama || <span className="text-rose-500 italic">Kosong</span>}</td>
+                              <td className="py-2 px-3">
+                                {row.kelasNamaRaw ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{row.kelasNamaRaw}</span>
+                                    {row.isNewClass && (
+                                      <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-150 rounded text-[9px] font-extrabold shrink-0 animate-pulse">Buat Baru</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-rose-500 italic">Kosong</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3">
+                                {row.halaqohNamaRaw ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{row.halaqohNamaRaw}</span>
+                                    {row.isNewHalaqoh && (
+                                      <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-150 rounded text-[9px] font-extrabold shrink-0 animate-pulse">Buat Baru</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 italic">Tanpa Halaqoh</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3">
+                                <div className="flex gap-1 text-[9px] font-black">
+                                  {row.isKelasDasar && <span className="px-1 bg-sky-50 text-sky-700 border border-sky-200 rounded">Dasar</span>}
+                                  {row.isKelasTahfidz && <span className="px-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">Tahfidz</span>}
+                                  {!row.isKelasDasar && !row.isKelasTahfidz && <span className="text-slate-400 font-normal">-</span>}
+                                </div>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                {!row.isValid ? (
+                                  <span className="px-2 py-0.5 bg-rose-100 text-rose-700 border border-rose-200 rounded-full text-[9px] font-black animate-bounce">
+                                    Error
+                                  </span>
+                                ) : row.action === 'update' ? (
+                                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[9px] font-black animate-pulse">
+                                    Update
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[9px] font-black">
+                                    Baru
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {bulkParsedData.some(row => !row.isValid) && (
+                      <div className="text-[11px] text-rose-650 font-bold mt-1">
+                        * Peringatan: Beberapa baris memiliki data tidak valid (error). Baris-baris ini akan otomatis dilewati saat proses impor berjalan. Silahkan periksa kolom "No Induk" dan "Nama".
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setShowBulkModal(false);
+                  setBulkFile(null);
+                  setBulkParsedData([]);
+                  setBulkImportProgress(null);
+                }}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-xs rounded-xl transition cursor-pointer disabled:opacity-50"
+                disabled={isSaving}
+              >
+                Batal
+              </button>
+              {bulkFile && bulkParsedData.length > 0 && (
+                <button
+                  onClick={handleCommitImport}
+                  disabled={isSaving || bulkImportProgress !== null}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-md shadow-indigo-200 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Mengimpor ({bulkImportProgress?.current || 0}/{bulkImportProgress?.total || 0})...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Konfirmasi & Mulai Impor Massal</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* POPUP FORMS MODALS (Reusable layout) */}
       {modalType && (
