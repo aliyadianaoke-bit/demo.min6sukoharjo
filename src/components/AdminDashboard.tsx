@@ -702,6 +702,28 @@ export default function AdminDashboard({
     }
   };
 
+  // 10. Bulk Delete for Selected Students
+  const handleBulkDeleteSiswa = async () => {
+    if (selectedSiswaIds.length === 0) return;
+    const isConfirmed = window.confirm(`Apakah Anda yakin ingin menghapus ${selectedSiswaIds.length} data siswa terpilih secara permanen?`);
+    if (!isConfirmed) return;
+
+    setIsBulkAssigning(true);
+    try {
+      for (const id of selectedSiswaIds) {
+        await deleteDoc(doc(db, 'students', id));
+      }
+
+      await refreshData();
+      showFeedback(`Berhasil menghapus ${selectedSiswaIds.length} siswa secara massal!`);
+      setSelectedSiswaIds([]);
+    } catch (err: any) {
+      showFeedback('Gagal menghapus siswa secara massal: ' + err.message, 'danger');
+    } finally {
+      setIsBulkAssigning(false);
+    }
+  };
+
   // 4. PENGAJAR (MUSYRIF)
   const handleMusyrifSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1512,7 +1534,7 @@ export default function AdminDashboard({
                       </div>
                       <div>
                         <p className="text-xs font-extrabold text-indigo-900">Siswa Terpilih</p>
-                        <p className="text-[10px] text-indigo-600">Pilih halaqoh sasaran untuk mengatur penempatan siswa terpilih secara sekaligus</p>
+                        <p className="text-[10px] text-indigo-600">Pilih halaqoh sasaran untuk mengatur penempatan siswa sekaligus, atau hapus data terpilih secara massal.</p>
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -1540,6 +1562,23 @@ export default function AdminDashboard({
                           <>
                             <CheckCircle className="w-3.5 h-3.5" />
                             <span>Terapkan Halaqoh</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={handleBulkDeleteSiswa}
+                        disabled={isBulkAssigning}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-sm"
+                      >
+                        {isBulkAssigning ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Memproses...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Hapus Massal</span>
                           </>
                         )}
                       </button>
