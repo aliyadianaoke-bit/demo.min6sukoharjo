@@ -443,42 +443,84 @@ export default function AdminDashboard({
       const dasarRaw = cols[4] ? cols[4].trim().toLowerCase() : '';
       const tahfidzRaw = cols[5] ? cols[5].trim().toLowerCase() : '';
 
-      const isKelasDasar = dasarRaw === 'y' || dasarRaw === 'ya' || dasarRaw === 'yes' || dasarRaw === '1' || dasarRaw === 'true';
-      const isKelasTahfidz = tahfidzRaw === 'y' || tahfidzRaw === 'ya' || tahfidzRaw === 'yes' || tahfidzRaw === '1' || tahfidzRaw === 'true';
-
       const rowErrors: string[] = [];
       if (!noInduk) rowErrors.push("No Induk wajib diisi.");
       if (!nama) rowErrors.push("Nama Lengkap wajib diisi.");
 
+      // Check if student with same noInduk already exists
+      const existingStudent = students.find(s => s.noInduk === noInduk);
+      const action = existingStudent ? 'update' : 'insert';
+
       // Match class
       let matchedClassId = '';
-      let isNewClass = false;
+      let matchedClassName = '';
+      let isUnmatchedClass = false;
+
       if (kelasNamaRaw) {
         const cls = classes.find(c => c.nama.toLowerCase().trim() === kelasNamaRaw.toLowerCase().trim());
         if (cls) {
           matchedClassId = cls.id;
+          matchedClassName = cls.nama;
         } else {
-          isNewClass = true;
+          isUnmatchedClass = true;
+          if (existingStudent) {
+            matchedClassId = existingStudent.kelasId || '';
+            matchedClassName = existingStudent.kelasNama || '';
+          }
         }
       } else {
-        rowErrors.push("Nama Kelas wajib diisi.");
+        if (existingStudent) {
+          matchedClassId = existingStudent.kelasId || '';
+          matchedClassName = existingStudent.kelasNama || '';
+        }
       }
 
       // Match halaqoh
       let matchedHalaqohId = '';
-      let isNewHalaqoh = false;
+      let matchedHalaqohName = 'Belum Ada Halaqoh';
+      let isUnmatchedHalaqoh = false;
+
       if (halaqohNamaRaw) {
         const hq = halaqohs.find(h => h.nama.toLowerCase().trim() === halaqohNamaRaw.toLowerCase().trim());
         if (hq) {
           matchedHalaqohId = hq.id;
+          matchedHalaqohName = hq.nama;
         } else {
-          isNewHalaqoh = true;
+          isUnmatchedHalaqoh = true;
+          if (existingStudent) {
+            matchedHalaqohId = existingStudent.halaqohId || '';
+            matchedHalaqohName = existingStudent.halaqohNama || 'Belum Ada Halaqoh';
+          }
+        }
+      } else {
+        if (existingStudent) {
+          matchedHalaqohId = existingStudent.halaqohId || '';
+          matchedHalaqohName = existingStudent.halaqohNama || 'Belum Ada Halaqoh';
         }
       }
 
-      // Check if student with same noInduk already exists
-      const existingStudent = students.find(s => s.noInduk === noInduk);
-      const action = existingStudent ? 'update' : 'insert';
+      // Programs
+      let isKelasDasar = false;
+      let isKelasTahfidz = false;
+
+      const hasDasarCol = cols[4] !== undefined && cols[4] !== null && cols[4].trim() !== '';
+      const hasTahfidzCol = cols[5] !== undefined && cols[5] !== null && cols[5].trim() !== '';
+
+      if (hasDasarCol) {
+        isKelasDasar = dasarRaw === 'y' || dasarRaw === 'ya' || dasarRaw === 'yes' || dasarRaw === '1' || dasarRaw === 'true';
+      } else {
+        if (existingStudent) {
+          isKelasDasar = existingStudent.isKelasDasar || false;
+        }
+      }
+
+      if (hasTahfidzCol) {
+        isKelasTahfidz = tahfidzRaw === 'y' || tahfidzRaw === 'ya' || tahfidzRaw === 'yes' || tahfidzRaw === '1' || tahfidzRaw === 'true';
+      } else {
+        if (existingStudent) {
+          isKelasTahfidz = existingStudent.isKelasTahfidz || false;
+        }
+      }
 
       processed.push({
         noInduk,
@@ -489,9 +531,11 @@ export default function AdminDashboard({
         isKelasTahfidz,
         action,
         matchedClassId,
+        matchedClassName,
         matchedHalaqohId,
-        isNewClass,
-        isNewHalaqoh,
+        matchedHalaqohName,
+        isUnmatchedClass,
+        isUnmatchedHalaqoh,
         isValid: rowErrors.length === 0,
         errors: rowErrors
       });
@@ -565,48 +609,7 @@ export default function AdminDashboard({
     setIsSaving(true);
 
     try {
-      // 1. Identify all unique new classes to create
-      const newClassNames = Array.from(new Set(
-        bulkParsedData
-          .filter(row => !row.matchedClassId && row.kelasNamaRaw && row.isValid)
-          .map(row => row.kelasNamaRaw.trim())
-      )) as string[];
-
-      const createdClassesMap: { [key: string]: { id: string, nama: string } } = {};
-      for (const className of newClassNames) {
-        const existing = classes.find(c => c.nama.toLowerCase() === className.toLowerCase());
-        if (existing) {
-          createdClassesMap[className.toLowerCase()] = { id: existing.id, nama: existing.nama };
-        } else {
-          const docRef = await addDoc(collection(db, 'classes'), { nama: className });
-          createdClassesMap[className.toLowerCase()] = { id: docRef.id, nama: className };
-        }
-      }
-
-      // 2. Identify all unique new halaqohs to create
-      const newHalaqohNames = Array.from(new Set(
-        bulkParsedData
-          .filter(row => !row.matchedHalaqohId && row.halaqohNamaRaw && row.isValid)
-          .map(row => row.halaqohNamaRaw.trim())
-      )) as string[];
-
-      const createdHalaqohsMap: { [key: string]: { id: string, nama: string } } = {};
-      for (const hqName of newHalaqohNames) {
-        const existing = halaqohs.find(h => h.nama.toLowerCase() === hqName.toLowerCase());
-        if (existing) {
-          createdHalaqohsMap[hqName.toLowerCase()] = { id: existing.id, nama: existing.nama };
-        } else {
-          const docRef = await addDoc(collection(db, 'halaqoh'), { 
-            nama: hqName, 
-            musyrifId: '', 
-            musyrifNama: 'Belum Ditentukan',
-            musyrifIds: []
-          });
-          createdHalaqohsMap[hqName.toLowerCase()] = { id: docRef.id, nama: hqName };
-        }
-      }
-
-      // 3. Insert or Update Students
+      // Insert or Update Students directly using resolved matched fields from processParsedRows
       let count = 0;
       for (const row of bulkParsedData) {
         if (!row.isValid) {
@@ -615,35 +618,13 @@ export default function AdminDashboard({
           continue; // Skip invalid rows
         }
 
-        // Resolve final class ID & Name
-        let finalClassId = row.matchedClassId;
-        let finalClassName = row.kelasNamaRaw;
-        if (!finalClassId && row.kelasNamaRaw) {
-          const created = createdClassesMap[row.kelasNamaRaw.toLowerCase()];
-          if (created) {
-            finalClassId = created.id;
-            finalClassName = created.nama;
-          }
-        }
-
-        // Resolve final halaqoh ID & Name
-        let finalHalaqohId = row.matchedHalaqohId;
-        let finalHalaqohName = row.halaqohNamaRaw || 'Belum Ada Halaqoh';
-        if (!finalHalaqohId && row.halaqohNamaRaw) {
-          const created = createdHalaqohsMap[row.halaqohNamaRaw.toLowerCase()];
-          if (created) {
-            finalHalaqohId = created.id;
-            finalHalaqohName = created.nama;
-          }
-        }
-
         const payload = {
           noInduk: row.noInduk,
           nama: row.nama,
-          kelasId: finalClassId || '',
-          kelasNama: finalClassName || '',
-          halaqohId: finalHalaqohId || '',
-          halaqohNama: finalHalaqohName,
+          kelasId: row.matchedClassId || '',
+          kelasNama: row.matchedClassName || '',
+          halaqohId: row.matchedHalaqohId || '',
+          halaqohNama: row.matchedHalaqohName || 'Belum Ada Halaqoh',
           isKelasDasar: row.isKelasDasar,
           isKelasTahfidz: row.isKelasTahfidz
         };
@@ -2493,8 +2474,8 @@ export default function AdminDashboard({
                   <h4 className="text-xs font-bold text-amber-800">Petunjuk Pengisian Template Excel/CSV:</h4>
                   <ul className="text-[11px] text-amber-700 list-disc pl-4 space-y-0.5">
                     <li>Gunakan template dengan pembatas titik koma (Semicolon <strong>;</strong>) agar otomatis terbagi ke dalam kolom-kolom terpisah yang rapi di Microsoft Excel secara langsung.</li>
-                    <li>Sistem otomatis mencocokkan <strong className="text-amber-900">No Induk</strong>. Jika sudah ada, data siswa tersebut akan diperbarui. Jika belum ada, siswa baru akan ditambahkan.</li>
-                    <li>Jika <strong className="text-amber-900">Nama Kelas</strong> atau <strong className="text-amber-900">Nama Halaqoh</strong> belum ada di database, sistem akan otomatis membuatnya baru!</li>
+                    <li>Sistem otomatis mencocokkan <strong className="text-amber-900">No Induk</strong>. Jika sudah ada, nama siswa akan diperbarui. Jika belum ada, siswa baru akan ditambahkan.</li>
+                    <li>Sistem <strong className="text-amber-900">tidak akan membuat kelas atau halaqoh baru</strong>. Data kelas/halaqoh siswa akan otomatis dicocokkan dengan data yang sudah ada di sistem. Jika tidak terdaftar, data siswa lama akan tetap mempertahankan kelas/halaqoh sebelumnya, sedangkan siswa baru akan dikosongkan.</li>
                     <li>Kolom <strong className="text-amber-900">Kelas Dasar</strong> dan <strong className="text-amber-900">Kelas Tahfidz</strong> diisi dengan <strong className="font-extrabold">Y</strong> (Ya/Ikut) atau <strong className="font-extrabold">T</strong> (Tidak/Bukan).</li>
                   </ul>
                 </div>
@@ -2594,7 +2575,7 @@ export default function AdminDashboard({
                       <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
                         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Baru</span>
                         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span> Update</span>
-                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span> Buat Baru</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Tidak Terdaftar</span>
                         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Tidak Valid</span>
                       </div>
                     </div>
@@ -2622,8 +2603,8 @@ export default function AdminDashboard({
                                 {row.kelasNamaRaw ? (
                                   <div className="flex items-center gap-1.5">
                                     <span>{row.kelasNamaRaw}</span>
-                                    {row.isNewClass && (
-                                      <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-150 rounded text-[9px] font-extrabold shrink-0 animate-pulse">Buat Baru</span>
+                                    {row.isUnmatchedClass && (
+                                      <span className="px-1.5 py-0.2 bg-amber-50 text-amber-700 border border-amber-150 rounded text-[9px] font-extrabold shrink-0" title="Kelas tidak ada di database, data kelas akan disesuaikan dengan yang sudah ada (tidak diubah atau dikosongkan)">Tidak Terdaftar</span>
                                     )}
                                   </div>
                                 ) : (
@@ -2634,8 +2615,8 @@ export default function AdminDashboard({
                                 {row.halaqohNamaRaw ? (
                                   <div className="flex items-center gap-1.5">
                                     <span>{row.halaqohNamaRaw}</span>
-                                    {row.isNewHalaqoh && (
-                                      <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-150 rounded text-[9px] font-extrabold shrink-0 animate-pulse">Buat Baru</span>
+                                    {row.isUnmatchedHalaqoh && (
+                                      <span className="px-1.5 py-0.2 bg-amber-50 text-amber-700 border border-amber-150 rounded text-[9px] font-extrabold shrink-0" title="Halaqoh tidak ada di database, data halaqoh akan disesuaikan dengan yang sudah ada (tidak diubah atau dikosongkan)">Tidak Terdaftar</span>
                                     )}
                                   </div>
                                 ) : (
