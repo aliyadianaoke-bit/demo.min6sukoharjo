@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
    Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
-   ChevronRight, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
+   ChevronRight, ChevronLeft, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
    Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
@@ -111,6 +111,7 @@ export default function AdminDashboard({
   const [isBulkAssigning, setIsBulkAssigning] = useState(false);
   const [siswaSearch, setSiswaSearch] = useState('');
   const [siswaHalaqohFilter, setSiswaHalaqohFilter] = useState('all');
+  const [siswaCurrentPage, setSiswaCurrentPage] = useState(1);
 
   // Sync attendance logs when the administrator views the 'absen' tab
   React.useEffect(() => {
@@ -1427,6 +1428,14 @@ export default function AdminDashboard({
               return matchesSearch && matchesHalaqoh;
             });
 
+            const itemsPerPage = 25;
+            const totalSiswaItems = filteredStudents.length;
+            const totalSiswaPages = Math.ceil(totalSiswaItems / itemsPerPage) || 1;
+            const currentPage = Math.min(siswaCurrentPage, totalSiswaPages);
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const paginatedStudents = filteredStudents.slice(startIndex, endIndex);
+
             return (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-1 rounded-2xl">
@@ -1483,7 +1492,10 @@ export default function AdminDashboard({
                       type="text"
                       placeholder="Cari siswa berdasarkan nama, no induk, atau kelas..."
                       value={siswaSearch}
-                      onChange={(e) => setSiswaSearch(e.target.value)}
+                      onChange={(e) => {
+                        setSiswaSearch(e.target.value);
+                        setSiswaCurrentPage(1);
+                      }}
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs"
                     />
                   </div>
@@ -1494,6 +1506,7 @@ export default function AdminDashboard({
                       onChange={(e) => {
                         setSiswaHalaqohFilter(e.target.value);
                         setSelectedSiswaIds([]); // clear checkboxes on filter change
+                        setSiswaCurrentPage(1);
                       }}
                       className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs cursor-pointer min-w-44"
                     >
@@ -1581,12 +1594,14 @@ export default function AdminDashboard({
                         <th className="py-3.5 px-4 w-10 text-center">
                           <input
                             type="checkbox"
-                            checked={filteredStudents.length > 0 && selectedSiswaIds.length === filteredStudents.length}
+                            checked={paginatedStudents.length > 0 && paginatedStudents.every(s => selectedSiswaIds.includes(s.id))}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedSiswaIds(filteredStudents.map(s => s.id));
+                                const currentIds = paginatedStudents.map(s => s.id);
+                                setSelectedSiswaIds(prev => Array.from(new Set([...prev, ...currentIds])));
                               } else {
-                                setSelectedSiswaIds([]);
+                                const currentIds = paginatedStudents.map(s => s.id);
+                                setSelectedSiswaIds(prev => prev.filter(id => !currentIds.includes(id)));
                               }
                             }}
                             className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
@@ -1602,12 +1617,12 @@ export default function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                      {filteredStudents.length === 0 ? (
+                      {paginatedStudents.length === 0 ? (
                         <tr>
                           <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">Data siswa tidak ditemukan.</td>
                         </tr>
                       ) : (
-                        filteredStudents.map((sys, idx) => {
+                        paginatedStudents.map((sys, idx) => {
                           const isSelected = selectedSiswaIds.includes(sys.id);
                           return (
                             <tr key={sys.id} className={`hover:bg-slate-50/50 ${isSelected ? 'bg-indigo-50/30' : ''}`}>
@@ -1625,7 +1640,7 @@ export default function AdminDashboard({
                                   className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
                                 />
                               </td>
-                              <td className="py-3 px-4 font-mono font-bold text-slate-400">{idx + 1}</td>
+                              <td className="py-3 px-4 font-mono font-bold text-slate-400">{startIndex + idx + 1}</td>
                               <td className="py-3 px-4 font-mono font-semibold text-slate-800">{sys.noInduk}</td>
                               <td className="py-3 px-4 font-bold text-slate-900">{sys.nama}</td>
                               <td className="py-3 px-4">
@@ -1687,6 +1702,66 @@ export default function AdminDashboard({
                     </tbody>
                   </table>
                 </div>
+
+                {/* Pagination Controls */}
+                {totalSiswaPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+                    <p className="text-xs font-medium text-slate-500">
+                      Menampilkan <strong className="text-slate-800 font-extrabold">{startIndex + 1}</strong> sampai{" "}
+                      <strong className="text-slate-800 font-extrabold">{Math.min(endIndex, totalSiswaItems)}</strong> dari{" "}
+                      <strong className="text-slate-800 font-extrabold">{totalSiswaItems}</strong> siswa
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setSiswaCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="p-1.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition cursor-pointer"
+                        title="Halaman Sebelumnya"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      
+                      {/* Page numbers */}
+                      {(() => {
+                        const pages = [];
+                        const maxVisiblePages = 5;
+                        let startPage = Math.max(1, currentPage - 2);
+                        let endPage = Math.min(totalSiswaPages, startPage + maxVisiblePages - 1);
+                        
+                        if (endPage - startPage + 1 < maxVisiblePages) {
+                          startPage = Math.max(1, endPage - maxVisiblePages + 1);
+                        }
+                        
+                        for (let p = startPage; p <= endPage; p++) {
+                          const isActive = p === currentPage;
+                          pages.push(
+                            <button
+                              key={p}
+                              onClick={() => setSiswaCurrentPage(p)}
+                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                                isActive 
+                                  ? 'bg-emerald-600 text-white shadow-xs' 
+                                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          );
+                        }
+                        return pages;
+                      })()}
+
+                      <button
+                        onClick={() => setSiswaCurrentPage(prev => Math.min(prev + 1, totalSiswaPages))}
+                        disabled={currentPage === totalSiswaPages}
+                        className="p-1.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition cursor-pointer"
+                        title="Halaman Berikutnya"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, onSnapshot, query, where, orderBy, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, orderBy, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { Camera, Calendar, Clock, Smile, AlertCircle, RefreshCw, CheckCircle } from 'lucide-react';
 import AbsenCamera from './AbsenCamera';
 
@@ -93,18 +93,31 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
       
       const hariStr = getDayName(tanggalStr);
 
-      const payload = {
-        musyrifId: userId,
-        musyrifNama: userNama,
-        tanggal: tanggalStr,
-        waktu: waktuStr,
-        hari: hariStr,
-        fotoUrl: base64Image,
-        status: 'Proses'
-      };
+      const existingToday = attendances.find(a => a.tanggal === tanggalStr);
 
-      await addDoc(collection(db, 'absen_musyrif'), payload);
-      setSuccessMsg('Absensi berhasil disimpan!');
+      if (existingToday) {
+        // Update existing attendance document instead of creating a duplicate
+        const docRef = doc(db, 'absen_musyrif', existingToday.id);
+        await updateDoc(docRef, {
+          waktu: waktuStr,
+          hari: hariStr,
+          fotoUrl: base64Image
+        });
+        setSuccessMsg('Absensi Anda hari ini berhasil diperbarui!');
+      } else {
+        const payload = {
+          musyrifId: userId,
+          musyrifNama: userNama,
+          tanggal: tanggalStr,
+          waktu: waktuStr,
+          hari: hariStr,
+          fotoUrl: base64Image,
+          status: 'Proses'
+        };
+
+        await addDoc(collection(db, 'absen_musyrif'), payload);
+        setSuccessMsg('Absensi berhasil disimpan!');
+      }
       setShowCameraModal(false);
       
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -121,6 +134,19 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
 
   return (
     <div className="space-y-6">
+      {/* Policy Info Notice */}
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3 text-amber-900 text-xs leading-relaxed font-medium shadow-2xs">
+        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="font-extrabold uppercase text-[10px] tracking-wider text-amber-800">
+            Kebijakan Absensi Harian Satu Akun Satu Kali
+          </p>
+          <p>
+            Sesuai ketentuan, <strong>1 akun Musyrif hanya diminta untuk 1 kali melakukan absensi dalam 1 hari</strong>, walaupun Anda mengajar lebih dari 1 halaqoh. Jika Anda mengulang absensi, sistem akan otomatis memperbarui foto absensi Anda sebelumnya untuk hari ini tanpa membuat catatan ganda.
+          </p>
+        </div>
+      </div>
+
       {/* Upper Greeting & Quick Action Banner */}
       <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl p-6 text-white shadow-md relative overflow-hidden">
         <div className="absolute right-0 bottom-0 translate-x-10 translate-y-6 opacity-10 text-9xl font-black pointer-events-none">

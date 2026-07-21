@@ -144,17 +144,38 @@ export default function MusyrifDashboard({
       const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
       const hariStr = days[now.getDay()];
 
-      const payload = {
-        musyrifId: userId,
-        musyrifNama: userNama,
-        tanggal: tanggalStr,
-        waktu: waktuStr,
-        hari: hariStr,
-        fotoUrl: base64Image
-      };
+      // Query for existing attendance record for today to prevent duplicates
+      const q = query(
+        collection(db, 'absen_musyrif'),
+        where('musyrifId', '==', userId),
+        where('tanggal', '==', tanggalStr)
+      );
+      const snap = await getDocs(q);
 
-      await addDoc(collection(db, 'absen_musyrif'), payload);
-      showFeedback('Absensi kehadiran Anda berhasil disimpan!');
+      if (!snap.empty) {
+        // Update existing record
+        const docId = snap.docs[0].id;
+        const docRef = doc(db, 'absen_musyrif', docId);
+        await updateDoc(docRef, {
+          waktu: waktuStr,
+          hari: hariStr,
+          fotoUrl: base64Image
+        });
+        showFeedback('Absensi harian Anda hari ini berhasil diperbarui!');
+      } else {
+        // Create new record
+        const payload = {
+          musyrifId: userId,
+          musyrifNama: userNama,
+          tanggal: tanggalStr,
+          waktu: waktuStr,
+          hari: hariStr,
+          fotoUrl: base64Image
+        };
+
+        await addDoc(collection(db, 'absen_musyrif'), payload);
+        showFeedback('Absensi kehadiran Anda berhasil disimpan!');
+      }
       setShowAutoAbsenModal(false);
     } catch (err: any) {
       console.error('Failed to save automatic attendance:', err);
@@ -1236,6 +1257,19 @@ export default function MusyrifDashboard({
                   </h3>
                   <p className="text-xs text-slate-500">
                     Kelola absensi harian santri untuk halaqoh aktif. Kehadiran ini otomatis memengaruhi rekap harian saat dishare.
+                  </p>
+                </div>
+              </div>
+
+              {/* Policy Info Notice */}
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3 text-amber-900 text-xs leading-relaxed font-medium shadow-2xs">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-extrabold uppercase text-[10px] tracking-wider text-amber-800">
+                    Kebijakan Absensi Harian Satu Akun Satu Kali
+                  </p>
+                  <p>
+                    Sesuai ketentuan, <strong>1 santri/siswa hanya diabsen 1 kali dalam 1 hari</strong>. Jika santri sudah diabsen pada hari tersebut, mengganti halaqoh tidak akan menghapus status kehadiran mereka; data kehadiran akan tersinkronisasi dan dipertahankan secara otomatis untuk hari ini.
                   </p>
                 </div>
               </div>
