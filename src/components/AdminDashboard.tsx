@@ -366,6 +366,42 @@ export default function AdminDashboard({
   };
 
   // --- BULK STUDENT IMPORT HELPERS ---
+  const findExistingStudent = (rowNoInduk: string, rowNama: string, currentStudents: Siswa[]) => {
+    const cleanNoInduk = (rowNoInduk || '').trim();
+    const cleanNama = (rowNama || '').trim().toLowerCase();
+
+    // Match by No Induk first if provided and non-empty
+    if (cleanNoInduk) {
+      const matchByNoInduk = currentStudents.find(
+        s => (s.noInduk || '').trim() === cleanNoInduk
+      );
+      if (matchByNoInduk) return matchByNoInduk;
+    }
+
+    // Fallback match by Name (case-insensitive) if provided
+    if (cleanNama) {
+      const matchByNama = currentStudents.find(
+        s => (s.nama || '').trim().toLowerCase() === cleanNama
+      );
+      if (matchByNama) return matchByNama;
+    }
+
+    return undefined;
+  };
+
+  const generateNextNoInduk = (currentStudents: Siswa[]): string => {
+    let maxNum = 1000;
+    for (const s of currentStudents) {
+      if (s.noInduk) {
+        const num = parseInt(s.noInduk.replace(/\D/g, ''), 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+    return (maxNum + 1).toString();
+  };
+
   const parseCSV = (text: string): string[][] => {
     const result: string[][] = [];
     let row: string[] = [];
@@ -445,11 +481,10 @@ export default function AdminDashboard({
       const tahfidzRaw = cols[5] ? cols[5].trim().toLowerCase() : '';
 
       const rowErrors: string[] = [];
-      if (!noInduk) rowErrors.push("No Induk wajib diisi.");
       if (!nama) rowErrors.push("Nama Lengkap wajib diisi.");
 
-      // Check if student with same noInduk already exists
-      const existingStudent = students.find(s => s.noInduk === noInduk);
+      // Check if student with same noInduk or name already exists
+      const existingStudent = findExistingStudent(noInduk, nama, students);
       const action = existingStudent ? 'update' : 'insert';
 
       // Match class
@@ -530,6 +565,8 @@ export default function AdminDashboard({
         halaqohNamaRaw,
         isKelasDasar,
         isKelasTahfidz,
+        hasDasarCol,
+        hasTahfidzCol,
         action,
         matchedClassId,
         matchedClassName,
@@ -610,8 +647,11 @@ export default function AdminDashboard({
     setIsSaving(true);
 
     try {
-      // Insert or Update Students directly using resolved matched fields from processParsedRows
       let count = 0;
+      let importedNewCount = 0;
+      let updatedCount = 0;
+      const accumulatedStudents = [...students];
+
       for (const row of bulkParsedData) {
         if (!row.isValid) {
           count++;
@@ -619,24 +659,51 @@ export default function AdminDashboard({
           continue; // Skip invalid rows
         }
 
-        const payload = {
-          noInduk: row.noInduk,
-          nama: row.nama,
-          kelasId: row.matchedClassId || '',
-          kelasNama: row.matchedClassName || '',
-          halaqohId: row.matchedHalaqohId || '',
-          halaqohNama: row.matchedHalaqohName || 'Belum Ada Halaqoh',
-          isKelasDasar: row.isKelasDasar,
-          isKelasTahfidz: row.isKelasTahfidz
-        };
+        const existingStudent = findExistingStudent(row.noInduk, row.nama, accumulatedStudents);
 
-        const existingStudent = students.find(s => s.noInduk === row.noInduk);
         if (existingStudent) {
-          // Update existing
+          // Update existing student without wiping out existing class/halaqoh if blank in CSV
+          const payload: any = {
+            nama: row.nama || existingStudent.nama || '',
+            noInduk: row.noInduk || existingStudent.noInduk || '',
+            kelasId: row.matchedClassId || existingStudent.kelasId || '',
+            kelasNama: row.matchedClassName || existingStudent.kelasNama || '',
+            halaqohId: row.matchedHalaqohId || existingStudent.halaqohId || '',
+            halaqohNama: (row.matchedHalaqohName && row.matchedHalaqohName !== 'Belum Ada Halaqoh') 
+              ? row.matchedHalaqohName 
+              : (existingStudent.halaqohNama || 'Belum Ada Halaqoh'),
+            isKelasDasar: row.hasDasarCol ? row.isKelasDasar : (existingStudent.isKelasDasar || false),
+            isKelasTahfidz: row.hasTahfidzCol ? row.isKelasTahfidz : (existingStudent.isKelasTahfidz || false)
+          };
+
           await updateDoc(doc(db, 'students', existingStudent.id), payload);
+          
+          const idx = accumulatedStudents.findIndex(s => s.id === existingStudent.id);
+          if (idx !== -1) {
+            accumulatedStudents[idx] = { ...accumulatedStudents[idx], ...payload };
+          }
+          updatedCount++;
         } else {
-          // Create new
-          await addDoc(collection(db, 'students'), payload);
+          // Add NEW student (data bertambah / appends to existing database)
+          const assignedNoInduk = row.noInduk || generateNextNoInduk(accumulatedStudents);
+          const payload = {
+            noInduk: assignedNoInduk,
+            nama: row.nama,
+            kelasId: row.matchedClassId || '',
+            kelasNama: row.matchedClassName || '',
+            halaqohId: row.matchedHalaqohId || '',
+            halaqohNama: row.matchedHalaqohName || 'Belum Ada Halaqoh',
+            isKelasDasar: row.isKelasDasar || false,
+            isKelasTahfidz: row.isKelasTahfidz || false
+          };
+
+          const docRef = await addDoc(collection(db, 'students'), payload);
+          
+          accumulatedStudents.push({
+            id: docRef.id,
+            ...payload
+          });
+          importedNewCount++;
         }
 
         count++;
@@ -644,7 +711,7 @@ export default function AdminDashboard({
       }
 
       await refreshData();
-      showFeedback(`Berhasil mengimpor/memperbarui ${bulkParsedData.length} data siswa!`);
+      showFeedback(`Berhasil mengimpor data massal! (${importedNewCount} siswa baru ditambahkan, ${updatedCount} siswa diperbarui)`);
       setShowBulkModal(false);
       setBulkFile(null);
       setBulkParsedData([]);
