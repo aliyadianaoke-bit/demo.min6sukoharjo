@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
-import { BookOpen, LogIn, Lock, User, Sparkles, Heart, Target, Award, ShieldCheck, HelpCircle } from 'lucide-react';
+import { BookOpen, LogIn, Lock, User, Sparkles, Heart, Target, Award, ShieldCheck, HelpCircle, ShieldAlert, Clock } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
+import { AbsenMusyrif } from '../types';
+import { isMusyrifAutoOff14, getWibInfo } from '../utils';
 
 interface HomeViewProps {
   onLoginSuccess: (role: 'admin' | 'musyrif', userId?: string, userNama?: string) => void;
   adminPass: string;
-  musyrifList: Array<{ id: string; nama: string; username: string; password?: string }>;
+  musyrifList: Array<{ id: string; nama: string; username: string; password?: string; statusAkses?: 'aktif' | 'nonaktif' }>;
+  musyrifLoginEnabled: boolean;
+  musyrifAttendances?: AbsenMusyrif[];
 }
 
-export default function HomeView({ onLoginSuccess, adminPass, musyrifList }: HomeViewProps) {
+export default function HomeView({ onLoginSuccess, adminPass, musyrifList, musyrifLoginEnabled, musyrifAttendances = [] }: HomeViewProps) {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState<'admin' | 'musyrif'>('musyrif');
   
@@ -30,11 +34,28 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList }: Hom
         setErrorMsg('Password Admin salah!');
       }
     } else {
+      if (!musyrifLoginEnabled) {
+        setErrorMsg('Akses login Musyrif saat ini dinonaktifkan (OFF) oleh Administrator.');
+        return;
+      }
       // Find Musyrif with matching username and password
       const found = musyrifList.find(
         (m) => m.username.toLowerCase() === username.toLowerCase() && m.password === password
       );
       if (found) {
+        if (found.statusAkses === 'nonaktif') {
+          setErrorMsg(`Akses login untuk Musyrif "${found.nama}" sedang DINONAKTIFKAN (OFF) oleh Admin.`);
+          return;
+        }
+        if (!musyrifLoginEnabled) {
+          setErrorMsg('Akses login Musyrif secara keseluruhan sedang dinonaktifkan (OFF) oleh Administrator.');
+          return;
+        }
+        // Check 14:00 WIB automatic cutoff rule (if no attendance completed today)
+        if (isMusyrifAutoOff14(found.id, musyrifAttendances)) {
+          setErrorMsg(`Akses login untuk Musyrif "${found.nama}" DINONAKTIFKAN OTOMATIS karena belum melakukan absensi hingga pukul 14.00 WIB. Akun akan terbuka kembali secara otomatis pada pukul 18.00 WIB.`);
+          return;
+        }
         onLoginSuccess('musyrif', found.id, found.nama);
         setShowLoginModal(false);
       } else {
@@ -310,6 +331,20 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList }: Hom
 
               {/* Login Form */}
               <form onSubmit={handleLoginSubmit} className="space-y-4">
+                {selectedRole === 'musyrif' && !musyrifLoginEnabled && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-semibold flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Akses login Musyrif sedang <strong>NONAKTIF (OFF)</strong>. Hanya Admin yang dapat masuk.</span>
+                  </div>
+                )}
+
+                {selectedRole === 'musyrif' && musyrifLoginEnabled && (
+                  <div className="p-2.5 bg-slate-100/80 border border-slate-200 rounded-xl text-slate-600 text-[11px] font-medium flex items-start gap-2">
+                    <Clock className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                    <span><strong>Batas Absensi 14.00 WIB</strong>: Musyrif yang belum absen hingga 14.00 WIB akan otomatis OFF dan terbuka kembali pukul 18.00 WIB.</span>
+                  </div>
+                )}
+
                 {errorMsg && (
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-xs font-semibold">
                     ⚠️ {errorMsg}

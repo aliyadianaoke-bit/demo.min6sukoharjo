@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, seedInitialData } from './firebase';
 import { collection, onSnapshot, getDoc, doc } from 'firebase/firestore';
-import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa } from './types';
+import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from './types';
+import { isMusyrifAutoOff14 } from './utils';
 import HomeView from './components/HomeView';
 import AdminDashboard from './components/AdminDashboard';
 import MusyrifDashboard from './components/MusyrifDashboard';
@@ -18,7 +19,9 @@ export default function App() {
   const [halaqohs, setHalaqohs] = useState<Halaqoh[]>([]);
   const [journals, setJournals] = useState<CatatanHarian[]>([]);
   const [studentAttendances, setStudentAttendances] = useState<AbsenSiswa[]>([]);
+  const [musyrifAttendances, setMusyrifAttendances] = useState<AbsenMusyrif[]>([]);
   const [adminPass, setAdminPass] = useState('admin123'); // fallback default
+  const [musyrifLoginEnabled, setMusyrifLoginEnabled] = useState(true);
 
   // Load and seed initial data once
   useEffect(() => {
@@ -60,11 +63,12 @@ export default function App() {
     init();
   }, []);
 
-  // Periodic check for session expiration (2 hours from login)
+  // Periodic check for session expiration (2 hours from login) and Musyrif 14:00 cutoff
   useEffect(() => {
     if (appState === 'home' || appState === 'loading') return;
 
     const checkInterval = setInterval(() => {
+      // 1. Session duration check (2 hours)
       const loginTimestamp = localStorage.getItem('absen_login_timestamp');
       if (loginTimestamp) {
         const parsedTimestamp = parseInt(loginTimestamp, 10);
@@ -72,26 +76,39 @@ export default function App() {
         const twoHoursInMs = 2 * 60 * 60 * 1000;
 
         if (now - parsedTimestamp >= twoHoursInMs) {
-          // Session expired, trigger logout
           handleLogout();
+          return;
         }
       } else {
-        // No session timestamp but in authenticated state, clear for safety
         handleLogout();
+        return;
+      }
+
+      // 2. Musyrif auto 14:00 cutoff check
+      if (appState === 'musyrif' && currentUser?.id) {
+        if (isMusyrifAutoOff14(currentUser.id, musyrifAttendances)) {
+          alert('⚠️ Akses login dinonaktifkan otomatis karena Anda belum melakukan absensi hingga pukul 14.00 WIB. Akun akan terbuka kembali secara otomatis pada pukul 18.00 WIB.');
+          handleLogout();
+        }
       }
     }, 15000); // Check every 15 seconds
 
     return () => clearInterval(checkInterval);
-  }, [appState]);
+  }, [appState, currentUser, musyrifAttendances]);
 
   // Fetch / Sync all collections in real-time
   useEffect(() => {
-    // 1. Sync settings (admin password)
+    // 1. Sync settings (admin password and musyrif login status)
     const unsubSettings = onSnapshot(doc(db, 'settings', 'admin'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data && data.adminPassword) {
           setAdminPass(data.adminPassword);
+        }
+        if (data && typeof data.musyrifLoginEnabled === 'boolean') {
+          setMusyrifLoginEnabled(data.musyrifLoginEnabled);
+        } else {
+          setMusyrifLoginEnabled(true);
         }
       }
     });
@@ -158,6 +175,15 @@ export default function App() {
       setStudentAttendances(list);
     });
 
+    // 8. Sync musyrif attendance
+    const unsubAbsenMusyrif = onSnapshot(collection(db, 'absen_musyrif'), (snap) => {
+      const list: AbsenMusyrif[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as AbsenMusyrif);
+      });
+      setMusyrifAttendances(list);
+    });
+
     return () => {
       unsubSettings();
       unsubClasses();
@@ -166,6 +192,7 @@ export default function App() {
       unsubStudents();
       unsubCatatan();
       unsubAbsenSiswa();
+      unsubAbsenMusyrif();
     };
   }, []);
 
@@ -228,6 +255,8 @@ export default function App() {
           onLoginSuccess={handleLoginSuccess}
           adminPass={adminPass}
           musyrifList={musyrifs}
+          musyrifLoginEnabled={musyrifLoginEnabled}
+          musyrifAttendances={musyrifAttendances}
         />
       )}
 
@@ -240,6 +269,8 @@ export default function App() {
           halaqohs={halaqohs}
           journals={journals}
           adminPass={adminPass}
+          musyrifLoginEnabled={musyrifLoginEnabled}
+          musyrifAttendances={musyrifAttendances}
           refreshData={refreshAllData}
         />
       )}

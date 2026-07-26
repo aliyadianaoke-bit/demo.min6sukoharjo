@@ -6,19 +6,9 @@ import {
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { db } from '../firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
-import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian } from '../types';
-
-interface AbsenMusyrif {
-  id: string;
-  musyrifId: string;
-  musyrifNama: string;
-  tanggal: string; // YYYY-MM-DD
-  waktu: string; // HH:mm:ss
-  hari: string; // e.g. Senin, Selasa, dll
-  fotoUrl: string; // base64 string
-  status?: 'Proses' | 'Disetujui';
-}
+import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenMusyrif } from '../types';
+import { isMusyrifAutoOff14 } from '../utils';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -28,6 +18,8 @@ interface AdminDashboardProps {
   halaqohs: Halaqoh[];
   journals: CatatanHarian[];
   adminPass: string;
+  musyrifLoginEnabled: boolean;
+  musyrifAttendances?: AbsenMusyrif[];
   refreshData: () => Promise<void>;
 }
 
@@ -39,6 +31,8 @@ export default function AdminDashboard({
   halaqohs,
   journals,
   adminPass,
+  musyrifLoginEnabled,
+  musyrifAttendances = [],
   refreshData
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan' | 'absen'>('kelas');
@@ -78,6 +72,7 @@ export default function AdminDashboard({
   const [musyrifHalaqohId, setMusyrifHalaqohId] = useState('');
   const [musyrifUsername, setMusyrifUsername] = useState('');
   const [musyrifPassword, setMusyrifPassword] = useState('');
+  const [musyrifStatusAkses, setMusyrifStatusAkses] = useState<'aktif' | 'nonaktif'>('aktif');
 
   // 5. Laporan Form
   const [selectedLaporanHalaqohId, setSelectedLaporanHalaqohId] = useState(halaqohs[0]?.id || '');
@@ -788,7 +783,8 @@ export default function AdminDashboard({
         nama: musyrifNama.trim(),
         username: musyrifUsername.trim(),
         halaqohId: musyrifHalaqohId || '',
-        halaqohNama: hq ? hq.nama : 'Belum Ditentukan'
+        halaqohNama: hq ? hq.nama : 'Belum Ditentukan',
+        statusAkses: musyrifStatusAkses
       };
       
       // Only include password if set (or on add)
@@ -925,6 +921,38 @@ export default function AdminDashboard({
       await refreshData();
     } catch (err: any) {
       showFeedback('Gagal mengubah password: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 7. TOGGLE MUSYRIF LOGIN PERMISSION (GLOBAL)
+  const handleToggleMusyrifLogin = async (enabled: boolean) => {
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'admin'), {
+        musyrifLoginEnabled: enabled
+      }, { merge: true });
+      showFeedback(`Akses login Musyrif massal berhasil di-${enabled ? 'AKTIFKAN (ON)' : 'NONAKTIFKAN (OFF)'}!`);
+    } catch (err: any) {
+      showFeedback('Gagal mengubah status akses login Musyrif: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 7b. TOGGLE INDIVIDUAL MUSYRIF STATUS
+  const handleToggleIndividualMusyrifStatus = async (musyrifId: string, currentStatus?: string) => {
+    const newStatus = currentStatus === 'nonaktif' ? 'aktif' : 'nonaktif';
+    setIsSaving(true);
+    try {
+      await updateDoc(doc(db, 'musyrif', musyrifId), {
+        statusAkses: newStatus
+      });
+      showFeedback(`Status akses login Musyrif berhasil diubah menjadi ${newStatus === 'aktif' ? 'AKTIF (ON)' : 'NONAKTIF (OFF)'}!`);
+      await refreshData();
+    } catch (err: any) {
+      showFeedback('Gagal mengubah status akses Musyrif: ' + err.message, 'danger');
     } finally {
       setIsSaving(false);
     }
@@ -1880,10 +1908,10 @@ export default function AdminDashboard({
           {/* TAB 3: PENGAJAR */}
           {activeTab === 'pengajar' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-extrabold text-slate-800">Daftar Pengajar (Musyrif)</h3>
-                  <p className="text-xs text-slate-500">Kelola akun dan kredensial akses login Musyrif lapangan</p>
+                  <p className="text-xs text-slate-500">Kelola akun, kredensial, dan status akses login per Musyrif</p>
                 </div>
                 <button
                   onClick={() => {
@@ -1893,12 +1921,69 @@ export default function AdminDashboard({
                     setMusyrifHalaqohId('');
                     setMusyrifUsername('');
                     setMusyrifPassword('');
+                    setMusyrifStatusAkses('aktif');
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer self-start sm:self-center shadow-2xs"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Tambah Pengajar</span>
                 </button>
+              </div>
+
+              {/* Status Access Control Card for Massal Musyrif Login */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    musyrifLoginEnabled ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-rose-100 text-rose-700 border border-rose-200'
+                  }`}>
+                    {musyrifLoginEnabled ? <UserCheck className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Akses Login Massal Musyrif</h4>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase ${
+                        musyrifLoginEnabled ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                      }`}>
+                        {musyrifLoginEnabled ? 'AKTIF (ON)' : 'NONAKTIF (OFF)'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      {musyrifLoginEnabled
+                        ? 'Master Switch Global: Login dibuka. Status individual per Musyrif pada tabel di bawah tetap berlaku.'
+                        : 'Master Switch Global: Seluruh login Musyrif ditutup massal oleh Admin.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* ON / OFF Toggle Switch */}
+                <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                  <span className="text-xs font-bold text-slate-600">Master Switch:</span>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => handleToggleMusyrifLogin(!musyrifLoginEnabled)}
+                    className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                      musyrifLoginEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                    }`}
+                    title="Klik untuk mengubah saklar master login Musyrif (ON/OFF)"
+                  >
+                    <span
+                      className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform flex items-center justify-center font-black text-[9px] ${
+                        musyrifLoginEnabled ? 'translate-x-9 text-emerald-700' : 'translate-x-1 text-slate-500'
+                      }`}
+                    >
+                      {musyrifLoginEnabled ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Ketentuan Otomatis Absensi 14.00 WIB Banner */}
+              <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-2xl flex items-start gap-3 shadow-2xs">
+                <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-relaxed">
+                  <strong className="font-extrabold text-amber-950">Aturan Sistem Absensi Otomatis (14.00 WIB)</strong>: Musyrif yang belum melakukan absensi harian hingga pukul 14.00 WIB akan <strong>otomatis dinonaktifkan (OFF)</strong> akses login-nya oleh sistem, dan akan <strong>terbuka kembali secara otomatis pada pukul 18.00 WIB</strong> hari ini.
+                </div>
               </div>
 
               <div className="overflow-x-auto border border-slate-100 rounded-2xl">
@@ -1910,50 +1995,85 @@ export default function AdminDashboard({
                       <th className="py-3.5 px-4">NAMA PENGAJAR</th>
                       <th className="py-3.5 px-4">USERNAME</th>
                       <th className="py-3.5 px-4">PASSWORD</th>
+                      <th className="py-3.5 px-4">STATUS AKSES LOGIN</th>
                       <th className="py-3.5 px-4 text-right w-24">OPSI</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                     {musyrifs.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400 font-medium">Belum ada pengajar terdaftar.</td>
+                        <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">Belum ada pengajar terdaftar.</td>
                       </tr>
                     ) : (
-                      musyrifs.map((m, i) => (
-                        <tr key={m.id} className="hover:bg-slate-50/50">
-                          <td className="py-3 px-4 font-mono font-bold text-slate-400">{i + 1}</td>
-                          <td className="py-3 px-4 font-mono font-semibold text-slate-800">{m.nim}</td>
-                          <td className="py-3 px-4 font-bold text-slate-900">{m.nama}</td>
-                          <td className="py-3 px-4 font-mono">{m.username}</td>
-                          <td className="py-3 px-4 font-mono text-slate-400 select-all font-bold group hover:text-slate-700 transition" title="Klik untuk menyalin">
-                            ⚡ {m.password || '●●●●●●'}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="inline-flex gap-1.5">
-                              <button
-                                onClick={() => {
-                                  setModalType('edit');
-                                  setEditId(m.id);
-                                  setMusyrifNim(m.nim);
-                                  setMusyrifNama(m.nama);
-                                  setMusyrifHalaqohId(m.halaqohId);
-                                  setMusyrifUsername(m.username);
-                                  setMusyrifPassword(m.password || '');
-                                }}
-                                className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteObj('musyrif', m.id)}
-                                className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                      musyrifs.map((m, i) => {
+                        const isAutoOff = isMusyrifAutoOff14(m.id, musyrifAttendances);
+                        const isManualOff = m.statusAkses === 'nonaktif';
+
+                        return (
+                          <tr key={m.id} className="hover:bg-slate-50/50">
+                            <td className="py-3 px-4 font-mono font-bold text-slate-400">{i + 1}</td>
+                            <td className="py-3 px-4 font-mono font-semibold text-slate-800">{m.nim}</td>
+                            <td className="py-3 px-4 font-bold text-slate-900">{m.nama}</td>
+                            <td className="py-3 px-4 font-mono">{m.username}</td>
+                            <td className="py-3 px-4 font-mono text-slate-400 select-all font-bold group hover:text-slate-700 transition" title="Klik untuk menyalin">
+                              ⚡ {m.password || '●●●●●●'}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                  type="button"
+                                  disabled={isSaving}
+                                  onClick={() => handleToggleIndividualMusyrifStatus(m.id, m.statusAkses)}
+                                  className={`px-3 py-1.5 rounded-xl border text-[10px] font-black tracking-wider uppercase transition cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+                                    isManualOff
+                                      ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                      : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  }`}
+                                  title="Klik untuk mengubah status manual akses login musyrif ini (ON/OFF)"
+                                >
+                                  <span className={`w-2 h-2 rounded-full ${isManualOff ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                                  <span>{isManualOff ? 'OFF (Manual)' : 'ON (Manual)'}</span>
+                                </button>
+
+                                {isAutoOff && !isManualOff && (
+                                  <span
+                                    className="px-2.5 py-1 rounded-xl bg-amber-100 text-amber-800 border border-amber-300/80 text-[10px] font-black tracking-wider uppercase flex items-center gap-1"
+                                    title="Musyrif ini belum absen hingga pukul 14.00 WIB sehingga akses login terkunci otomatis sampai 18.00 WIB"
+                                  >
+                                    <Clock className="w-3 h-3 text-amber-600" />
+                                    <span>OFF (Belum Absen 14.00-18.00)</span>
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="inline-flex gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setModalType('edit');
+                                    setEditId(m.id);
+                                    setMusyrifNim(m.nim);
+                                    setMusyrifNama(m.nama);
+                                    setMusyrifHalaqohId(m.halaqohId);
+                                    setMusyrifUsername(m.username);
+                                    setMusyrifPassword(m.password || '');
+                                    setMusyrifStatusAkses(m.statusAkses || 'aktif');
+                                  }}
+                                  className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteObj('musyrif', m.id)}
+                                  className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -2559,61 +2679,103 @@ export default function AdminDashboard({
             <div className="space-y-6">
               <div className="border-b border-slate-100 pb-4">
                 <h3 className="text-lg font-extrabold text-slate-800">Pengaturan Sistem</h3>
-                <p className="text-xs text-slate-500">Ubah kredensial password login administrator utama</p>
+                <p className="text-xs text-slate-500">Kelola kredensial administrator dan kontrol akses login Musyrif</p>
               </div>
 
-              <div className="max-w-md bg-slate-50 border border-slate-100 p-6 rounded-2xl space-y-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                  <Lock className="w-4 h-4 text-emerald-600" />
-                  <span>Ubah Password Administrator</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                {/* Musyrif Access Control Toggle */}
+                <div className="bg-slate-50 border border-slate-200/80 p-6 rounded-2xl space-y-4 shadow-2xs">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                    <UserCheck className="w-4 h-4 text-emerald-600" />
+                    <span>Kontrol Akses Login Musyrif</span>
+                  </div>
+
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Fitur ini memungkinkan Admin untuk mengaktifkan (ON) atau menonaktifkan (OFF) akses login seluruh Musyrif ke dalam portal. Jika di-OFF-kan, Musyrif tidak dapat melakukan login.
+                  </p>
+
+                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-slate-700 block">Status Login Musyrif:</span>
+                      <span className={`text-[11px] font-extrabold ${musyrifLoginEnabled ? 'text-emerald-700' : 'text-rose-600'}`}>
+                        {musyrifLoginEnabled ? '● Login Diizinkan (ON)' : '● Login Diblokir (OFF)'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => handleToggleMusyrifLogin(!musyrifLoginEnabled)}
+                      className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                        musyrifLoginEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                      }`}
+                      title="Klik untuk mengubah status akses login Musyrif (ON/OFF)"
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform flex items-center justify-center font-black text-[9px] ${
+                          musyrifLoginEnabled ? 'translate-x-9 text-emerald-700' : 'translate-x-1 text-slate-500'
+                        }`}
+                      >
+                        {musyrifLoginEnabled ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
-                <form onSubmit={handleChangePassword} className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-600 block">Password Saat Ini</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Masukkan password admin lama"
-                      value={currentPass}
-                      onChange={(e) => setCurrentPass(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
+                {/* Change Admin Password */}
+                <div className="bg-slate-50 border border-slate-200/80 p-6 rounded-2xl space-y-4 shadow-2xs">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                    <Lock className="w-4 h-4 text-emerald-600" />
+                    <span>Ubah Password Administrator</span>
                   </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-slate-600 block">Password Baru</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Masukkan password admin baru"
-                      value={newPass}
-                      onChange={(e) => setNewPass(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
+                  <form onSubmit={handleChangePassword} className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-600 block">Password Saat Ini</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Masukkan password admin lama"
+                        value={currentPass}
+                        onChange={(e) => setCurrentPass(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-600 block">Ulangi Password Baru</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Konfirmasi password baru"
-                      value={confirmNewPass}
-                      onChange={(e) => setConfirmNewPass(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-600 block">Password Baru</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Masukkan password admin baru"
+                        value={newPass}
+                        onChange={(e) => setNewPass(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
 
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <Save className="w-4 h-4" />
-                    <span>Simpan Password Administrator</span>
-                  </button>
-                </form>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-600 block">Ulangi Password Baru</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Konfirmasi password baru"
+                        value={confirmNewPass}
+                        onChange={(e) => setConfirmNewPass(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSaving}
+                      className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>Simpan Password Administrator</span>
+                    </button>
+                  </form>
+                </div>
               </div>
             </div>
           )}
@@ -3128,6 +3290,34 @@ export default function AdminDashboard({
                         onChange={(e) => setMusyrifPassword(e.target.value)}
                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white focus:outline-none transition"
                       />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 pb-2 border-t border-slate-100 pt-3">
+                    <label className="text-xs font-bold text-slate-600 block">Status Akses Login</label>
+                    <div className="flex items-center gap-4 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                        <input
+                          type="radio"
+                          name="musyrifStatusAkses"
+                          value="aktif"
+                          checked={musyrifStatusAkses !== 'nonaktif'}
+                          onChange={() => setMusyrifStatusAkses('aktif')}
+                          className="text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span className="text-emerald-700 font-extrabold">● AKTIF (Boleh Login)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                        <input
+                          type="radio"
+                          name="musyrifStatusAkses"
+                          value="nonaktif"
+                          checked={musyrifStatusAkses === 'nonaktif'}
+                          onChange={() => setMusyrifStatusAkses('nonaktif')}
+                          className="text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span className="text-rose-600 font-extrabold">● NONAKTIF (Dilarang Login)</span>
+                      </label>
                     </div>
                   </div>
 

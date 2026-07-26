@@ -31,6 +31,7 @@ export interface Musyrif {
   password?: string;
   halaqohId: string; // Associated Halaqoh ID
   halaqohNama: string;
+  statusAkses?: 'aktif' | 'nonaktif';
 }
 
 export type NilaiEvaluasi = 'A' | 'B' | 'C' | 'D' | 'E'; // Mumtaz (A), Jayyid Jidid (B), Jayyid (C), Maqbul (D), Rosib (E)
@@ -64,4 +65,15 @@ export interface AbsenSiswa {
 
 export interface SystemSettings {
   adminPassword?: string;
+}
+
+export interface AbsenMusyrif {
+  id: string;
+  musyrifId: string;
+  musyrifNama: string;
+  tanggal: string; // YYYY-MM-DD
+  waktu: string; // HH:mm:ss
+  hari: string;
+  fotoUrl?: string;
+  status?: 'Proses' | 'Disetujui';
 }
