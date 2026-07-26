@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
    Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
    ChevronRight, ChevronLeft, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
-   Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet
+   Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet, ArrowUpDown
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { db } from '../firebase';
@@ -111,6 +111,8 @@ export default function AdminDashboard({
   const [isBulkAssigning, setIsBulkAssigning] = useState(false);
   const [siswaSearch, setSiswaSearch] = useState('');
   const [siswaHalaqohFilter, setSiswaHalaqohFilter] = useState('all');
+  const [siswaKelasFilter, setSiswaKelasFilter] = useState('all');
+  const [siswaClassSortOrder, setSiswaClassSortOrder] = useState<'asc' | 'desc'>('asc');
   const [siswaCurrentPage, setSiswaCurrentPage] = useState(1);
 
   // Sync attendance logs when the administrator views the 'absen' tab
@@ -1483,19 +1485,31 @@ export default function AdminDashboard({
 
           {/* TAB 2: SISWA */}
           {activeTab === 'siswa' && (() => {
-            const filteredStudents = students.filter(sys => {
-              const matchesSearch = sys.nama.toLowerCase().includes(siswaSearch.toLowerCase()) || 
-                                    sys.noInduk.toLowerCase().includes(siswaSearch.toLowerCase()) ||
-                                    (sys.kelasNama || '').toLowerCase().includes(siswaSearch.toLowerCase());
-              
-              const matchesHalaqoh = siswaHalaqohFilter === 'all' || 
-                                     (siswaHalaqohFilter === 'none' && (!sys.halaqohId || sys.halaqohId === '')) || 
-                                     sys.halaqohId === siswaHalaqohFilter;
-                                     
-              return matchesSearch && matchesHalaqoh;
-            });
+            const filteredStudents = students
+              .filter(sys => {
+                const matchesSearch = sys.nama.toLowerCase().includes(siswaSearch.toLowerCase()) || 
+                                      sys.noInduk.toLowerCase().includes(siswaSearch.toLowerCase()) ||
+                                      (sys.kelasNama || '').toLowerCase().includes(siswaSearch.toLowerCase());
+                
+                const matchesHalaqoh = siswaHalaqohFilter === 'all' || 
+                                       (siswaHalaqohFilter === 'none' && (!sys.halaqohId || sys.halaqohId === '')) || 
+                                       sys.halaqohId === siswaHalaqohFilter;
 
-            const itemsPerPage = 25;
+                const matchesKelas = siswaKelasFilter === 'all' ||
+                                     sys.kelasId === siswaKelasFilter ||
+                                     sys.kelasNama === siswaKelasFilter;
+                                       
+                return matchesSearch && matchesHalaqoh && matchesKelas;
+              })
+              .sort((a, b) => {
+                const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
+                if (classCompare !== 0) {
+                  return siswaClassSortOrder === 'asc' ? classCompare : -classCompare;
+                }
+                return (a.nama || '').localeCompare(b.nama || '', 'id');
+              });
+
+            const itemsPerPage = 20;
             const totalSiswaItems = filteredStudents.length;
             const totalSiswaPages = Math.ceil(totalSiswaItems / itemsPerPage) || 1;
             const currentPage = Math.min(siswaCurrentPage, totalSiswaPages);
@@ -1550,8 +1564,8 @@ export default function AdminDashboard({
                 </div>
 
                 {/* Search & Filter Controls */}
-                <div className="flex flex-col md:flex-row gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                  <div className="relative flex-1">
+                <div className="flex flex-col md:flex-row gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 items-center">
+                  <div className="relative flex-1 w-full">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
                       <Search className="h-4 w-4 text-slate-400" />
                     </span>
@@ -1566,23 +1580,53 @@ export default function AdminDashboard({
                       className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs"
                     />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-bold text-slate-600 shrink-0">Filter Halaqoh:</label>
-                    <select
-                      value={siswaHalaqohFilter}
-                      onChange={(e) => {
-                        setSiswaHalaqohFilter(e.target.value);
-                        setSelectedSiswaIds([]); // clear checkboxes on filter change
-                        setSiswaCurrentPage(1);
-                      }}
-                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs cursor-pointer min-w-44"
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-600 shrink-0 hidden lg:inline">Filter Kelas:</label>
+                      <select
+                        value={siswaKelasFilter}
+                        onChange={(e) => {
+                          setSiswaKelasFilter(e.target.value);
+                          setSelectedSiswaIds([]);
+                          setSiswaCurrentPage(1);
+                        }}
+                        className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs cursor-pointer min-w-36"
+                      >
+                        <option value="all">Semua Kelas</option>
+                        {classes.map(c => (
+                          <option key={c.id} value={c.id}>{c.nama}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setSiswaClassSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                      className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-extrabold text-slate-700 hover:bg-slate-100 transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs shrink-0"
+                      title="Klik untuk mengubah urutan sortir berdasarkan kelas"
                     >
-                      <option value="all">Semua Halaqoh</option>
-                      <option value="none">Belum Ada Halaqoh</option>
-                      {halaqohs.map(h => (
-                        <option key={h.id} value={h.id}>{h.nama}</option>
-                      ))}
-                    </select>
+                      <ArrowUpDown className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Urutan: <strong className="text-emerald-700">{siswaClassSortOrder === 'asc' ? '1 → 6' : '6 → 1'}</strong></span>
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-600 shrink-0 hidden lg:inline">Filter Halaqoh:</label>
+                      <select
+                        value={siswaHalaqohFilter}
+                        onChange={(e) => {
+                          setSiswaHalaqohFilter(e.target.value);
+                          setSelectedSiswaIds([]); // clear checkboxes on filter change
+                          setSiswaCurrentPage(1);
+                        }}
+                        className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition shadow-2xs cursor-pointer min-w-36"
+                      >
+                        <option value="all">Semua Halaqoh</option>
+                        <option value="none">Belum Ada Halaqoh</option>
+                        {halaqohs.map(h => (
+                          <option key={h.id} value={h.id}>{h.nama}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
 

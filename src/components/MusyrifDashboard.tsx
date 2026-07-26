@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar, CheckCircle, Award, BookMarked, FileText, BarChart2, Plus, Edit2, 
   Trash2, LogOut, ChevronRight, Filter, AlertCircle, Sparkles, Smile, Info, BookOpen,
-  Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search
+  Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search, ArrowUpDown
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { db } from '../firebase';
@@ -64,6 +64,9 @@ export default function MusyrifDashboard({
   const [rekapHariTanggal, setRekapHariTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [absenSiswaTanggal, setAbsenSiswaTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [absenSiswaSearch, setAbsenSiswaSearch] = useState('');
+  const [absenSiswaKelasFilter, setAbsenSiswaKelasFilter] = useState('all');
+  const [absenSiswaCurrentPage, setAbsenSiswaCurrentPage] = useState(1);
+  const [classSortOrder, setClassSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isUpdatingAttendance, setIsUpdatingAttendance] = useState<string | null>(null);
   const [selectedBulanMonth, setSelectedBulanMonth] = useState('06'); // Default June (2026 as current year)
   const [selectedBulanSiswaId, setSelectedBulanSiswaId] = useState('');
@@ -1045,12 +1048,20 @@ export default function MusyrifDashboard({
   };
 
   // All students belonging to this Musyrif's managed halaqohs (filtered to selected halaqoh if active)
-  const myStudents = students.filter(s => {
-    if (selectedHalaqohId) {
-      return s.halaqohId === selectedHalaqohId;
-    }
-    return myHalaqohs.some(h => h.id === s.halaqohId);
-  });
+  const myStudents = students
+    .filter(s => {
+      if (selectedHalaqohId) {
+        return s.halaqohId === selectedHalaqohId;
+      }
+      return myHalaqohs.some(h => h.id === s.halaqohId);
+    })
+    .sort((a, b) => {
+      const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
+      if (classCompare !== 0) {
+        return classSortOrder === 'asc' ? classCompare : -classCompare;
+      }
+      return (a.nama || '').localeCompare(b.nama || '', 'id');
+    });
 
   // Filter students based on selected Class and Program
   const inputTabStudents = myStudents.filter(s => {
@@ -1344,24 +1355,58 @@ export default function MusyrifDashboard({
                               type="text"
                               placeholder="Cari nama atau nomor induk..."
                               value={absenSiswaSearch}
-                              onChange={(e) => setAbsenSiswaSearch(e.target.value)}
+                              onChange={(e) => {
+                                setAbsenSiswaSearch(e.target.value);
+                                setAbsenSiswaCurrentPage(1);
+                              }}
                               className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-600"
                             />
                           </div>
                         </div>
                       </div>
 
-                      {/* Bulk Operations */}
-                      <div className="w-full md:w-auto shrink-0 flex gap-2">
-                        <button
-                          type="button"
-                          disabled={isSaving || myStudents.length === 0}
-                          onClick={handleMarkAllPresent}
-                          className="w-full md:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-xs"
-                        >
-                          <UserCheck className="w-4 h-4" />
-                          <span>Hadirkan Semua</span>
-                        </button>
+                      {/* Dropdown Filter Kelas & Bulk Operations */}
+                      <div className="w-full md:w-auto shrink-0 flex flex-wrap gap-2 items-end">
+                        <div className="w-full sm:w-auto space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Pilih / Filter Kelas</label>
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={absenSiswaKelasFilter}
+                              onChange={(e) => {
+                                setAbsenSiswaKelasFilter(e.target.value);
+                                setAbsenSiswaCurrentPage(1);
+                              }}
+                              className="w-full sm:w-auto px-3.5 py-2 bg-slate-50 hover:bg-white text-slate-700 font-bold text-xs rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-600 transition shadow-2xs cursor-pointer min-w-40"
+                            >
+                              <option value="all">Semua Kelas</option>
+                              {classes.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.nama}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setClassSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                              className="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition cursor-pointer flex items-center justify-center shrink-0"
+                              title={classSortOrder === 'asc' ? 'Urutan Kelas: Naik (1 → 6)' : 'Urutan Kelas: Turun (6 → 1)'}
+                            >
+                              <ArrowUpDown className="w-4 h-4 text-emerald-600" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="w-full sm:w-auto">
+                          <label className="text-[10px] font-bold text-transparent uppercase tracking-wider hidden sm:block mb-1.5">Aksi</label>
+                          <button
+                            type="button"
+                            disabled={isSaving || myStudents.length === 0}
+                            onClick={handleMarkAllPresent}
+                            className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-xs"
+                          >
+                            <UserCheck className="w-4 h-4" />
+                            <span>Hadirkan Semua</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -1420,87 +1465,182 @@ export default function MusyrifDashboard({
 
                   {/* Student List for Attendance */}
                   <div className="bg-white rounded-2xl border border-slate-150 shadow-xs overflow-hidden">
-                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                      <h4 className="text-xs font-black text-slate-800 tracking-wider uppercase">Daftar Kehadiran Santri ({
-                        myStudents.filter(s => {
+                    {(() => {
+                      const filteredList = myStudents
+                        .filter(s => {
+                          if (absenSiswaKelasFilter !== 'all') {
+                            if (s.kelasId !== absenSiswaKelasFilter && s.kelasNama !== absenSiswaKelasFilter) {
+                              return false;
+                            }
+                          }
                           if (absenSiswaSearch.trim()) {
-                            return s.nama.toLowerCase().includes(absenSiswaSearch.toLowerCase()) ||
-                                   (s.noInduk && s.noInduk.toLowerCase().includes(absenSiswaSearch.toLowerCase()));
+                            const term = absenSiswaSearch.toLowerCase();
+                            return s.nama.toLowerCase().includes(term) ||
+                                   (s.noInduk && s.noInduk.toLowerCase().includes(term)) ||
+                                   (s.kelasNama && s.kelasNama.toLowerCase().includes(term));
                           }
                           return true;
-                        }).length
-                      })</h4>
-                      <span className="text-[10px] font-bold text-slate-400">Pilih status untuk otomatis menyimpan</span>
-                    </div>
+                        })
+                        .sort((a, b) => {
+                          const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
+                          if (classCompare !== 0) {
+                            return classSortOrder === 'asc' ? classCompare : -classCompare;
+                          }
+                          return (a.nama || '').localeCompare(b.nama || '', 'id');
+                        });
 
-                    {(() => {
-                      const filteredList = myStudents.filter(s => {
-                        if (absenSiswaSearch.trim()) {
-                          return s.nama.toLowerCase().includes(absenSiswaSearch.toLowerCase()) ||
-                                 (s.noInduk && s.noInduk.toLowerCase().includes(absenSiswaSearch.toLowerCase()));
-                        }
-                        return true;
-                      });
-
-                      if (filteredList.length === 0) {
-                        return (
-                          <div className="p-12 text-center text-slate-400 text-xs">
-                            {absenSiswaSearch.trim() ? 'Tidak ada santri yang cocok dengan pencarian.' : 'Halaqoh ini belum memiliki data santri.'}
-                          </div>
-                        );
-                      }
+                      const itemsPerPage = 20;
+                      const totalSiswaItems = filteredList.length;
+                      const totalSiswaPages = Math.ceil(totalSiswaItems / itemsPerPage) || 1;
+                      const currentPage = Math.min(absenSiswaCurrentPage, totalSiswaPages);
+                      const startIndex = (currentPage - 1) * itemsPerPage;
+                      const endIndex = startIndex + itemsPerPage;
+                      const paginatedList = filteredList.slice(startIndex, endIndex);
 
                       return (
-                        <div className="divide-y divide-slate-100">
-                          {filteredList.map((siswa) => {
-                            const attRecord = studentAttendances.filter(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal)[0];
-                            const currentStatus = attRecord?.status || null;
-                            const isUpdating = isUpdatingAttendance === siswa.id;
+                        <>
+                          <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs font-black text-slate-800 tracking-wider uppercase">Daftar Kehadiran Santri ({totalSiswaItems})</h4>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                              <span>Tampilan 20 Data per Halaman (Hal {currentPage}/{totalSiswaPages})</span>
+                            </div>
+                          </div>
 
-                            return (
-                              <div key={siswa.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 hover:bg-slate-50/50 transition duration-150">
-                                <div className="space-y-1">
-                                  <div className="flex items-center gap-2">
-                                    <h5 className="text-sm font-black text-slate-800 uppercase">{siswa.nama}</h5>
-                                    {isUpdating && (
-                                      <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                          {filteredList.length === 0 ? (
+                            <div className="p-12 text-center text-slate-400 text-xs">
+                              {absenSiswaSearch.trim() || absenSiswaKelasFilter !== 'all'
+                                ? 'Tidak ada santri yang cocok dengan kriteria filter/pencarian.'
+                                : 'Halaqoh ini belum memiliki data santri.'}
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-slate-100">
+                              {paginatedList.map((siswa, idx) => {
+                                const prevSiswa = idx > 0 ? paginatedList[idx - 1] : null;
+                                const showClassHeader = !prevSiswa || prevSiswa.kelasNama !== siswa.kelasNama;
+                                const attRecord = studentAttendances.filter(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal)[0];
+                                const currentStatus = attRecord?.status || null;
+                                const isUpdating = isUpdatingAttendance === siswa.id;
+
+                                return (
+                                  <React.Fragment key={siswa.id}>
+                                    {showClassHeader && (
+                                      <div className="bg-slate-100/90 px-5 py-2 border-y border-slate-200 text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                                          <span>Kelas: {siswa.kelasNama || 'Tanpa Kelas'}</span>
+                                        </div>
+                                        <span className="text-[10px] font-bold text-slate-500 font-mono">
+                                          {filteredList.filter(s => (s.kelasNama || 'Tanpa Kelas') === (siswa.kelasNama || 'Tanpa Kelas')).length} Santri
+                                        </span>
+                                      </div>
                                     )}
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-500 text-xs font-medium">
-                                    <span>No Induk: <span className="font-bold font-mono text-slate-700">{siswa.noInduk || '-'}</span></span>
-                                    <span className="text-slate-300">•</span>
-                                    <span>Kelas: <span className="font-bold text-slate-700">{siswa.kelasNama || 'N/A'}</span></span>
-                                  </div>
-                                </div>
+                                    <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 hover:bg-slate-50/50 transition duration-150">
+                                      <div className="space-y-1">
+                                        <div className="flex items-center gap-2">
+                                          <h5 className="text-sm font-black text-slate-800 uppercase">{siswa.nama}</h5>
+                                          {isUpdating && (
+                                            <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                                          )}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-500 text-xs font-medium">
+                                          <span>No Induk: <span className="font-bold font-mono text-slate-700">{siswa.noInduk || '-'}</span></span>
+                                          <span className="text-slate-300">•</span>
+                                          <span>Kelas: <span className="font-bold text-slate-700">{siswa.kelasNama || 'N/A'}</span></span>
+                                        </div>
+                                      </div>
 
-                                {/* Attendance Status Picker */}
-                                <div className="flex items-center gap-1.5 self-start sm:self-center">
-                                  {[
-                                    { status: 'Hadir', label: 'Hadir', color: 'bg-emerald-600 text-white border-emerald-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700' },
-                                    { status: 'Sakit', label: 'Sakit', color: 'bg-amber-600 text-white border-amber-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700' },
-                                    { status: 'Izin', label: 'Izin', color: 'bg-sky-600 text-white border-sky-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700' },
-                                    { status: 'Alpa', label: 'Alpa', color: 'bg-rose-600 text-white border-rose-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700' }
-                                  ].map((opt) => {
-                                    const isSelected = currentStatus === opt.status;
-                                    return (
-                                      <button
-                                        key={opt.status}
-                                        type="button"
-                                        disabled={isUpdating}
-                                        onClick={() => handleUpdateStudentAttendance(siswa, opt.status as any)}
-                                        className={`px-3 py-1.5 rounded-xl border text-[10px] font-black tracking-wider uppercase transition cursor-pointer ${
-                                          isSelected ? opt.color : opt.inactiveColor
-                                        }`}
-                                      >
-                                        {opt.label}
-                                      </button>
-                                    );
+                                      {/* Attendance Status Picker */}
+                                      <div className="flex items-center gap-1.5 self-start sm:self-center">
+                                        {[
+                                          { status: 'Hadir', label: 'Hadir', color: 'bg-emerald-600 text-white border-emerald-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700' },
+                                          { status: 'Sakit', label: 'Sakit', color: 'bg-amber-600 text-white border-amber-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700' },
+                                          { status: 'Izin', label: 'Izin', color: 'bg-sky-600 text-white border-sky-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700' },
+                                          { status: 'Alpa', label: 'Alpa', color: 'bg-rose-600 text-white border-rose-600', inactiveColor: 'border-slate-200 text-slate-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700' }
+                                        ].map((opt) => {
+                                          const isSelected = currentStatus === opt.status;
+                                          return (
+                                            <button
+                                              key={opt.status}
+                                              type="button"
+                                              disabled={isUpdating}
+                                              onClick={() => handleUpdateStudentAttendance(siswa, opt.status as any)}
+                                              className={`px-3 py-1.5 rounded-xl border text-[10px] font-black tracking-wider uppercase transition cursor-pointer ${
+                                                isSelected ? opt.color : opt.inactiveColor
+                                              }`}
+                                            >
+                                              {opt.label}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </React.Fragment>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Pagination Footer */}
+                          {totalSiswaItems > 0 && (
+                            <div className="px-5 py-4 bg-slate-50 border-t border-slate-150 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                              <div className="text-slate-500 font-medium">
+                                Menampilkan <span className="font-bold text-slate-800">{startIndex + 1}</span> - <span className="font-bold text-slate-800">{Math.min(endIndex, totalSiswaItems)}</span> dari <span className="font-bold text-slate-800">{totalSiswaItems}</span> Santri
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={currentPage <= 1}
+                                  onClick={() => setAbsenSiswaCurrentPage(p => Math.max(1, p - 1))}
+                                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-bold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                                >
+                                  Sebelumnya
+                                </button>
+                                
+                                <div className="flex items-center gap-1 px-2">
+                                  {Array.from({ length: totalSiswaPages }, (_, i) => i + 1).map((pg) => {
+                                    if (
+                                      pg === 1 || 
+                                      pg === totalSiswaPages || 
+                                      (pg >= currentPage - 1 && pg <= currentPage + 1)
+                                    ) {
+                                      return (
+                                        <button
+                                          key={pg}
+                                          type="button"
+                                          onClick={() => setAbsenSiswaCurrentPage(pg)}
+                                          className={`w-8 h-8 rounded-lg font-extrabold text-xs transition cursor-pointer ${
+                                            currentPage === pg
+                                              ? 'bg-emerald-600 text-white shadow-xs'
+                                              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {pg}
+                                        </button>
+                                      );
+                                    } else if (
+                                      (pg === 2 && currentPage > 3) ||
+                                      (pg === totalSiswaPages - 1 && currentPage < totalSiswaPages - 2)
+                                    ) {
+                                      return <span key={pg} className="text-slate-400 font-bold px-0.5">...</span>;
+                                    }
+                                    return null;
                                   })}
                                 </div>
+
+                                <button
+                                  type="button"
+                                  disabled={currentPage >= totalSiswaPages}
+                                  onClick={() => setAbsenSiswaCurrentPage(p => Math.min(totalSiswaPages, p + 1))}
+                                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-bold hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                                >
+                                  Selanjutnya
+                                </button>
                               </div>
-                            );
-                          })}
-                        </div>
+                            </div>
+                          )}
+                        </>
                       );
                     })()}
                   </div>
