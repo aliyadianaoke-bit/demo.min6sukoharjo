@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, seedInitialData } from './firebase';
-import { collection, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { collection, onSnapshot, getDoc, doc, query, where, orderBy, limit } from 'firebase/firestore';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from './types';
-import { isMusyrifAutoOff14 } from './utils';
+import { isMusyrifAutoOff14, getWibInfo } from './utils';
 import HomeView from './components/HomeView';
 import AdminDashboard from './components/AdminDashboard';
 import MusyrifDashboard from './components/MusyrifDashboard';
@@ -96,9 +96,9 @@ export default function App() {
     return () => clearInterval(checkInterval);
   }, [appState, currentUser, musyrifAttendances]);
 
-  // Fetch / Sync all collections in real-time
+  // 1. Lightweight Baseline Listeners (always active for system settings, musyrif login, and today's cutoff check)
   useEffect(() => {
-    // 1. Sync settings (admin password and musyrif login status)
+    // Sync settings (admin password and musyrif login status)
     const unsubSettings = onSnapshot(doc(db, 'settings', 'admin'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -111,30 +111,11 @@ export default function App() {
           setMusyrifLoginEnabled(true);
         }
       }
+    }, (err) => {
+      console.warn("Firestore settings snapshot notice:", err);
     });
 
-    // 2. Sync classes
-    const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
-      const list: Kelas[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as Kelas);
-      });
-      // Sort alphabetically
-      list.sort((a, b) => a.nama.localeCompare(b.nama));
-      setClasses(list);
-    });
-
-    // 3. Sync halaqoh
-    const unsubHalaqoh = onSnapshot(collection(db, 'halaqoh'), (snap) => {
-      const list: Halaqoh[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as Halaqoh);
-      });
-      list.sort((a, b) => a.nama.localeCompare(b.nama));
-      setHalaqohs(list);
-    });
-
-    // 4. Sync musyrif
+    // Sync musyrif list for login options
     const unsubMusyrif = onSnapshot(collection(db, 'musyrif'), (snap) => {
       const list: Musyrif[] = [];
       snap.forEach((d) => {
@@ -142,59 +123,123 @@ export default function App() {
       });
       list.sort((a, b) => a.nama.localeCompare(b.nama));
       setMusyrifs(list);
+    }, (err) => {
+      console.warn("Firestore musyrif snapshot notice:", err);
     });
 
-    // 5. Sync students
-    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-      const list: Siswa[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as Siswa);
-      });
-      // Sort by name
-      list.sort((a, b) => a.nama.localeCompare(b.nama));
-      setStudents(list);
-    });
-
-    // 6. Sync daily setoran journals
-    const unsubCatatan = onSnapshot(collection(db, 'catatan_harian'), (snap) => {
-      const list: CatatanHarian[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as CatatanHarian);
-      });
-      // Sort by newest date first
-      list.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
-      setJournals(list);
-    });
-
-    // 7. Sync student daily attendance
-    const unsubAbsenSiswa = onSnapshot(collection(db, 'absen_siswa'), (snap) => {
-      const list: AbsenSiswa[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as AbsenSiswa);
-      });
-      setStudentAttendances(list);
-    });
-
-    // 8. Sync musyrif attendance
-    const unsubAbsenMusyrif = onSnapshot(collection(db, 'absen_musyrif'), (snap) => {
+    // Sync ONLY today's musyrif attendance for auto 14:00 cutoff & today's status
+    // Querying only today's attendance avoids downloading historical base64 photos
+    const { todayStr } = getWibInfo();
+    const qTodayMusyrif = query(
+      collection(db, 'absen_musyrif'),
+      where('tanggal', '==', todayStr)
+    );
+    const unsubAbsenMusyrif = onSnapshot(qTodayMusyrif, (snap) => {
       const list: AbsenMusyrif[] = [];
       snap.forEach((d) => {
         list.push({ id: d.id, ...d.data() } as AbsenMusyrif);
       });
       setMusyrifAttendances(list);
+    }, (err) => {
+      console.warn("Firestore absen_musyrif snapshot notice:", err);
     });
 
     return () => {
       unsubSettings();
-      unsubClasses();
-      unsubHalaqoh();
       unsubMusyrif();
-      unsubStudents();
-      unsubCatatan();
-      unsubAbsenSiswa();
       unsubAbsenMusyrif();
     };
   }, []);
+
+  // 2. Sync full app collections ONLY when user is logged in (admin or musyrif)
+  useEffect(() => {
+    if (appState === 'home' || appState === 'loading') {
+      // Clear large arrays when on home view to reduce memory footprint
+      setClasses([]);
+      setHalaqohs([]);
+      setStudents([]);
+      setJournals([]);
+      setStudentAttendances([]);
+      return;
+    }
+
+    // Sync classes
+    const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
+      const list: Kelas[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as Kelas);
+      });
+      list.sort((a, b) => a.nama.localeCompare(b.nama));
+      setClasses(list);
+    }, (err) => {
+      console.warn("Firestore classes snapshot notice:", err);
+    });
+
+    // Sync halaqoh
+    const unsubHalaqoh = onSnapshot(collection(db, 'halaqoh'), (snap) => {
+      const list: Halaqoh[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as Halaqoh);
+      });
+      list.sort((a, b) => a.nama.localeCompare(b.nama));
+      setHalaqohs(list);
+    }, (err) => {
+      console.warn("Firestore halaqoh snapshot notice:", err);
+    });
+
+    // Sync students
+    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
+      const list: Siswa[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as Siswa);
+      });
+      list.sort((a, b) => a.nama.localeCompare(b.nama));
+      setStudents(list);
+    }, (err) => {
+      console.warn("Firestore students snapshot notice:", err);
+    });
+
+    // Sync daily setoran journals (limit to 500 latest entries to prevent massive data transfer)
+    const qJournals = query(
+      collection(db, 'catatan_harian'),
+      orderBy('tanggal', 'desc'),
+      limit(500)
+    );
+    const unsubCatatan = onSnapshot(qJournals, (snap) => {
+      const list: CatatanHarian[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as CatatanHarian);
+      });
+      list.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+      setJournals(list);
+    }, (err) => {
+      console.warn("Firestore catatan_harian snapshot notice:", err);
+    });
+
+    // Sync student daily attendance (limit to 500 latest entries)
+    const qAbsenSiswa = query(
+      collection(db, 'absen_siswa'),
+      orderBy('tanggal', 'desc'),
+      limit(500)
+    );
+    const unsubAbsenSiswa = onSnapshot(qAbsenSiswa, (snap) => {
+      const list: AbsenSiswa[] = [];
+      snap.forEach((d) => {
+        list.push({ id: d.id, ...d.data() } as AbsenSiswa);
+      });
+      setStudentAttendances(list);
+    }, (err) => {
+      console.warn("Firestore absen_siswa snapshot notice:", err);
+    });
+
+    return () => {
+      unsubClasses();
+      unsubHalaqoh();
+      unsubStudents();
+      unsubCatatan();
+      unsubAbsenSiswa();
+    };
+  }, [appState]);
 
   const refreshAllData = async () => {
     // Already synced via onSnapshot listeners, but provides manual reload hook if needed
