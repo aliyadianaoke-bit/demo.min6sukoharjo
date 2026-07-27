@@ -6,7 +6,7 @@ interface AbsenCameraProps {
   onCancel: () => void;
 }
 
-const compressImage = (base64Str: string, maxWidth = 400, maxHeight = 400, quality = 0.5): Promise<string> => {
+const compressImage = (base64Str: string, maxWidth = 600, maxHeight = 600, quality = 0.7): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.src = base64Str;

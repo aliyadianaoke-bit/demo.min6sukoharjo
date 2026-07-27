@@ -1,0 +1,136 @@
+{
+  "settings": [
+    {
+      "id": "admin",
+      "adminPassword": "admin123"
+    }
+  ],
+  "classes": [
+    { "id": "kls-1", "nama": "Kelas 1A" },
+    { "id": "kls-2", "nama": "Kelas 2B" },
+    { "id": "kls-3", "nama": "Kelas 3A" },
+    { "id": "kls-4", "nama": "Kelas 4A" },
+    { "id": "kls-5", "nama": "Kelas 5B" },
+    { "id": "kls-6", "nama": "Kelas 6A" }
+  ],
+  "halaqoh": [
+    { "id": "hq-1", "nama": "Halaqoh Al-Kahfi", "musyrifId": "usr-1", "musyrifNama": "Ahmad Muzakki, S.Pd." },
+    { "id": "hq-2", "nama": "Halaqoh An-Nur", "musyrifId": "usr-2", "musyrifNama": "Umar Al-Faruq" },
+    { "id": "hq-3", "nama": "Halaqoh At-Tin", "musyrifId": "", "musyrifNama": "Belum Ditentukan" }
+  ],
+  "musyrif": [
+    {
+      "id": "usr-1",
+      "nim": "202601001",
+      "nama": "Ahmad Muzakki, S.Pd.",
+      "username": "ahmad",
+      "password": "password123",
+      "halaqohId": "hq-1",
+      "halaqohNama": "Halaqoh Al-Kahfi"
+    },
+    {
+      "id": "usr-2",
+      "nim": "202601002",
+      "nama": "Umar Al-Faruq",
+      "username": "umar",
+      "password": "password123",
+      "halaqohId": "hq-2",
+      "halaqohNama": "Halaqoh An-Nur"
+    }
+  ],
+  "students": [
+    { "id": "sis-1", "noInduk": "1001", "nama": "Abdurrahman Wahid", "kelasId": "kls-1", "kelasNama": "Kelas 1A", "halaqohId": "hq-1", "halaqohNama": "Halaqoh Al-Kahfi" },
+    { "id": "sis-2", "noInduk": "1002", "nama": "Aisyah Humaira", "kelasId": "kls-1", "kelasNama": "Kelas 1A", "halaqohId": "hq-1", "halaqohNama": "Halaqoh Al-Kahfi" },
+    { "id": "sis-3", "noInduk": "1003", "nama": "Muhammad Bilal", "kelasId": "kls-2", "kelasNama": "Kelas 2B", "halaqohId": "hq-1", "halaqohNama": "Halaqoh Al-Kahfi" },
+    { "id": "sis-4", "noInduk": "1004", "nama": "Fathimah Az-Zahra", "kelasId": "kls-2", "kelasNama": "Kelas 2B", "halaqohId": "hq-2", "halaqohNama": "Halaqoh An-Nur" },
+    { "id": "sis-5", "noInduk": "1005", "nama": "Yusuf Al-Banjari", "kelasId": "kls-3", "kelasNama": "Kelas 3A", "halaqohId": "hq-2", "halaqohNama": "Halaqoh An-Nur" },
+    { "id": "sis-6", "noInduk": "1006", "nama": "Khadijah Al-Kubra", "kelasId": "kls-3", "kelasNama": "Kelas 3A", "halaqohId": "hq-3", "halaqohNama": "Halaqoh At-Tin" }
+  ],
+  "catatan_harian": [
+    {
+      "id": "cat-1",
+      "tanggal": "2026-06-18",
+      "siswaId": "sis-1",
+      "siswaNama": "Abdurrahman Wahid",
+      "noInduk": "1001",
+      "kelasNama": "Kelas 1A",
+      "halaqohId": "hq-1",
+      "materiSetoran": "An-Naba 1-15",
+      "evaluasiTahsin": "Tahsin sangat lancar, perlu menjaga panjang pendek pada mad wajib.",
+      "nilai": "A"
+    },
+    {
+      "id": "cat-2",
+      "tanggal": "2026-06-18",
+      "siswaId": "sis-2",
+      "siswaNama": "Aisyah Humaira",
+      "noInduk": "1002",
+      "kelasNama": "Kelas 1A",
+      "halaqohId": "hq-1",
+      "materiSetoran": "An-Nazi'at 1-20",
+      "evaluasiTahsin": "Hafalan agak terbata-bata di ayat 12-15, perlu muraja'ah kembali.",
+      "nilai": "C"
+    },
+    {
+      "id": "cat-3",
+      "tanggal": "2026-06-19",
+      "siswaId": "sis-1",
+      "siswaNama": "Abdurrahman Wahid",
+      "noInduk": "1001",
+      "kelasNama": "Kelas 1A",
+      "halaqohId": "hq-1",
+      "materiSetoran": "An-Naba 16-30",
+      "evaluasiTahsin": "Bagus sekali, bacaannya tartil dan makhrajnya tepat.",
+      "nilai": "A"
+    },
+    {
+      "id": "cat-4",
+      "tanggal": "2026-06-19",
+      "siswaId": "sis-2",
+      "siswaNama": "Aisyah Humaira",
+      "noInduk": "1002",
+      "kelasNama": "Kelas 1A",
+      "halaqohId": "hq-1",
+      "materiSetoran": "An-Nazi'at 21-46",
+      "evaluasiTahsin": "Ada peningkatan dari kemarin, pertahankan mad lazim-nya.",
+      "nilai": "B"
+    },
+    {
+      "id": "cat-5",
+      "tanggal": "2026-06-19",
+      "siswaId": "sis-4",
+      "siswaNama": "Fathimah Az-Zahra",
+      "noInduk": "1004",
+      "kelasNama": "Kelas 2B",
+      "halaqohId": "hq-2",
+      "materiSetoran": "Abasa 1-20",
+      "evaluasiTahsin": "Alhamdulillah sudah setoran dengan tajwid yang memadai.",
+      "nilai": "B"
+    }
+  ],
+  "absen_musyrif": [
+    {
+      "id": "abs-m1",
+      "musyrifId": "usr-1",
+      "musyrifNama": "Ahmad Muzakki, S.Pd.",
+      "tanggal": "2026-06-19",
+      "waktu": "07:15",
+      "hari": "Jumat",
+      "fotoUrl": "",
+      "status": "Disetujui"
+    }
+  ],
+  "absen_siswa": [
+    {
+      "id": "abs-s1",
+      "tanggal": "2026-06-19",
+      "siswaId": "sis-1",
+      "siswaNama": "Abdurrahman Wahid",
+      "noInduk": "1001",
+      "kelasId": "kls-1",
+      "kelasNama": "Kelas 1A",
+      "status": "Hadir",
+      "musyrifId": "usr-1"
+    }
+  ]
+}

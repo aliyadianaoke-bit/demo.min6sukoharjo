@@ -1,14 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { 
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager, 
-  collection, 
-  getDocs, 
-  setDoc, 
-  doc 
-} from 'firebase/firestore';
+import { getFirestore, collection, getDocs, setDoc, doc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCtHjQv6MDfENJHHPouIzvZLKVaOxkCwKU",
@@ -20,10 +12,8 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-// Initialize Firestore with specific database ID and persistent IndexedDB local cache for quota & bandwidth efficiency
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-}, "ai-studio-335dd8de-a015-4eda-8dd1-3c5f21c7e92e");
+// Initialize Firestore with specific database ID
+export const db = getFirestore(app, "ai-studio-335dd8de-a015-4eda-8dd1-3c5f21c7e92e");
 export const auth = getAuth(app);
 
 export enum OperationType {
@@ -219,7 +209,8 @@ export async function seedInitialData() {
 
       console.log("Firebase initial data seeded successfully.");
     }
-  } catch (error: any) {
-    console.warn("Notice: Initial data seeding skipped or deferred (e.g. quota limit or cache active):", error?.message || error);
+  } catch (error) {
+    console.error("Error seeding initial data:", error);
+    handleFirestoreError(error, OperationType.WRITE, 'seed_initial_data');
   }
 }

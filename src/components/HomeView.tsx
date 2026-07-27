@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { BookOpen, LogIn, Lock, User, Sparkles, Heart, Target, Award, ShieldCheck, HelpCircle, ShieldAlert, Clock } from 'lucide-react';
+import { BookOpen, LogIn, Lock, User, Sparkles, Heart, Target, Award, ShieldCheck, HelpCircle, ShieldAlert, Clock, Database } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { AbsenMusyrif } from '../types';
 import { isMusyrifAutoOff14, getWibInfo } from '../utils';
+import ExportSupabaseModal from './ExportSupabaseModal';
 
 interface HomeViewProps {
   onLoginSuccess: (role: 'admin' | 'musyrif', userId?: string, userNama?: string) => void;
@@ -14,6 +15,7 @@ interface HomeViewProps {
 
 export default function HomeView({ onLoginSuccess, adminPass, musyrifList, musyrifLoginEnabled, musyrifAttendances = [] }: HomeViewProps) {
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState<'admin' | 'musyrif'>('musyrif');
   
   // Login form fields
@@ -82,17 +84,28 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList, musyr
           </div>
         </div>
         
-        <button
-          id="login-btn"
-          onClick={() => {
-            setErrorMsg('');
-            setShowLoginModal(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition duration-150 rounded-xl shadow-md hover:shadow-lg hover:shadow-emerald-100 cursor-pointer"
-        >
-          <LogIn className="w-4 h-4" />
-          <span>Masuk</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 transition duration-150 rounded-xl cursor-pointer"
+            title="Eksport Database ke Supabase"
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="hidden sm:inline">Eksport ke Supabase</span>
+          </button>
+
+          <button
+            id="login-btn"
+            onClick={() => {
+              setErrorMsg('');
+              setShowLoginModal(true);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition duration-150 rounded-xl shadow-md hover:shadow-lg hover:shadow-emerald-100 cursor-pointer"
+          >
+            <LogIn className="w-4 h-4" />
+            <span>Masuk</span>
+          </button>
+        </div>
       </header>
 
       {/* Hero Banner Section */}
@@ -404,6 +417,12 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList, musyr
           </div>
         </div>
       )}
+
+      {/* Supabase Export Modal */}
+      <ExportSupabaseModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+      />
     </div>
   );
 }

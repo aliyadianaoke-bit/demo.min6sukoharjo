@@ -9,6 +9,7 @@ import { db } from '../firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenMusyrif } from '../types';
 import { isMusyrifAutoOff14 } from '../utils';
+import ExportSupabaseModal from './ExportSupabaseModal';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -36,6 +37,7 @@ export default function AdminDashboard({
   refreshData
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan' | 'absen'>('kelas');
+  const [showExportModal, setShowExportModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState({ text: '', type: 'success' });
 
@@ -1359,6 +1361,15 @@ export default function AdminDashboard({
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowExportModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-emerald-100 font-semibold rounded-xl text-xs transition duration-150 cursor-pointer border border-emerald-700"
+                title="Eksport Database ke Supabase"
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-300" />
+                <span className="hidden sm:inline">Eksport Supabase</span>
+              </button>
+
               <button
                 id="admin-logout-btn"
                 onClick={onLogout}
