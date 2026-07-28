@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, seedInitialData, handleFirestoreError, OperationType } from './firebase';
-import { collection, onSnapshot, doc, query, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, query, orderBy, limit, where, getDocs, getDoc } from 'firebase/firestore';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from './types';
 import { isMusyrifAutoOff14 } from './utils';
 import HomeView from './components/HomeView';
@@ -132,184 +132,140 @@ export default function App() {
     return () => clearInterval(checkInterval);
   }, [appState, currentUser, musyrifAttendances]);
 
-  // Fetch / Sync collections with Quota Savings Mode (Scoped Listening + Query Limits + Error Callbacks)
-  useEffect(() => {
-    const unsubs: Array<() => void> = [];
-
-    // 1. Settings (admin password and musyrif login status) - Always active (lightweight doc listener)
-    const unsubSettings = onSnapshot(
-      doc(db, 'settings', 'admin'),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          if (data && data.adminPassword) {
-            setAdminPass(data.adminPassword);
-          }
-          if (data && typeof data.musyrifLoginEnabled === 'boolean') {
-            setMusyrifLoginEnabled(data.musyrifLoginEnabled);
-          } else {
-            setMusyrifLoginEnabled(true);
-          }
+  // Fetch / Load data strictly ON DEMAND (only on page switch or explicitly triggered action)
+  const fetchRoleData = async (targetState: 'loading' | 'home' | 'admin' | 'musyrif', targetUserId?: string) => {
+    try {
+      // 1. Settings doc (1 doc read)
+      try {
+        const docSnapSettings = await getDoc(doc(db, 'settings', 'admin'));
+        if (docSnapSettings.exists()) {
+          const data = docSnapSettings.data();
+          if (data && data.adminPassword) setAdminPass(data.adminPassword);
+          if (data && typeof data.musyrifLoginEnabled === 'boolean') setMusyrifLoginEnabled(data.musyrifLoginEnabled);
         }
-      },
-      (error) => {
-        ensureFallbackData();
-        handleFirestoreError(error, OperationType.GET, 'settings/admin');
+      } catch (err) {
+        console.warn("Could not load admin settings:", err);
       }
-    );
-    unsubs.push(unsubSettings);
 
-    // 2. Musyrif List - Always active for home login modal & dashboard
-    const unsubMusyrif = onSnapshot(
-      collection(db, 'musyrif'),
-      (snap) => {
-        const list: Musyrif[] = [];
-        snap.forEach((d) => {
-          list.push({ id: d.id, ...d.data() } as Musyrif);
-        });
-        list.sort((a, b) => a.nama.localeCompare(b.nama));
-        setMusyrifs(list);
-      },
-      (error) => {
-        ensureFallbackData();
-        handleFirestoreError(error, OperationType.GET, 'musyrif');
+      // 2. Musyrif List
+      try {
+        const snapMus = await getDocs(collection(db, 'musyrif'));
+        const listMus: Musyrif[] = [];
+        snapMus.forEach((d) => listMus.push({ id: d.id, ...d.data() } as Musyrif));
+        listMus.sort((a, b) => a.nama.localeCompare(b.nama));
+        setMusyrifs(listMus);
+      } catch (err) {
+        console.warn("Could not load musyrif list:", err);
       }
-    );
-    unsubs.push(unsubMusyrif);
 
-    // 3. Musyrif Attendance - Query recent records with limit(50) to save reads
-    const qAbsenMusyrif = query(
-      collection(db, 'absen_musyrif'),
-      orderBy('tanggal', 'desc'),
-      limit(50)
-    );
-    const unsubAbsenMusyrif = onSnapshot(
-      qAbsenMusyrif,
-      (snap) => {
-        const list: AbsenMusyrif[] = [];
-        snap.forEach((d) => {
-          list.push({ id: d.id, ...d.data() } as AbsenMusyrif);
-        });
-        setMusyrifAttendances(list);
-      },
-      (error) => {
-        ensureFallbackData();
-        handleFirestoreError(error, OperationType.GET, 'absen_musyrif');
+      // If home or loading state, stop here
+      if (targetState === 'home' || targetState === 'loading') {
+        setClasses([]);
+        setHalaqohs([]);
+        setStudents([]);
+        setJournals([]);
+        setStudentAttendances([]);
+        setMusyrifAttendances([]);
+        return;
       }
-    );
-    unsubs.push(unsubAbsenMusyrif);
 
-    // ONLY LISTEN TO HEAVY/MANAGEMENT COLLECTIONS WHEN IN ADMIN OR MUSYRIF DASHBOARD
-    // This prevents unauthenticated home page visitors from executing reads on classes, halaqoh, students, journals, student attendance!
-    if (appState === 'admin' || appState === 'musyrif') {
-      // 4. Classes
-      const unsubClasses = onSnapshot(
-        collection(db, 'classes'),
-        (snap) => {
-          const list: Kelas[] = [];
-          snap.forEach((d) => {
-            list.push({ id: d.id, ...d.data() } as Kelas);
-          });
-          list.sort((a, b) => a.nama.localeCompare(b.nama));
-          setClasses(list);
-        },
-        (error) => {
-          ensureFallbackData();
-          handleFirestoreError(error, OperationType.GET, 'classes');
-        }
-      );
-      unsubs.push(unsubClasses);
+      // 3. ADMIN ROLE DATA
+      if (targetState === 'admin') {
+        const [qAbsMus, snapKls, snapHq, snapSis, qJrn, qAbsSis] = await Promise.all([
+          getDocs(query(collection(db, 'absen_musyrif'), orderBy('tanggal', 'desc'), limit(50))),
+          getDocs(collection(db, 'classes')),
+          getDocs(collection(db, 'halaqoh')),
+          getDocs(collection(db, 'students')),
+          getDocs(query(collection(db, 'catatan_harian'), orderBy('tanggal', 'desc'), limit(100))),
+          getDocs(query(collection(db, 'absen_siswa'), orderBy('tanggal', 'desc'), limit(100))),
+        ]);
 
-      // 5. Halaqoh
-      const unsubHalaqoh = onSnapshot(
-        collection(db, 'halaqoh'),
-        (snap) => {
-          const list: Halaqoh[] = [];
-          snap.forEach((d) => {
-            list.push({ id: d.id, ...d.data() } as Halaqoh);
-          });
-          list.sort((a, b) => a.nama.localeCompare(b.nama));
-          setHalaqohs(list);
-        },
-        (error) => {
-          ensureFallbackData();
-          handleFirestoreError(error, OperationType.GET, 'halaqoh');
-        }
-      );
-      unsubs.push(unsubHalaqoh);
+        const listAbsMus: AbsenMusyrif[] = [];
+        qAbsMus.forEach((d) => listAbsMus.push({ id: d.id, ...d.data() } as AbsenMusyrif));
+        setMusyrifAttendances(listAbsMus);
 
-      // 6. Students
-      const unsubStudents = onSnapshot(
-        collection(db, 'students'),
-        (snap) => {
-          const list: Siswa[] = [];
-          snap.forEach((d) => {
-            list.push({ id: d.id, ...d.data() } as Siswa);
-          });
-          list.sort((a, b) => a.nama.localeCompare(b.nama));
-          setStudents(list);
-        },
-        (error) => {
-          ensureFallbackData();
-          handleFirestoreError(error, OperationType.GET, 'students');
-        }
-      );
-      unsubs.push(unsubStudents);
+        const listKls: Kelas[] = [];
+        snapKls.forEach((d) => listKls.push({ id: d.id, ...d.data() } as Kelas));
+        listKls.sort((a, b) => a.nama.localeCompare(b.nama));
+        setClasses(listKls);
 
-      // 7. Daily Setoran Journals - Bounded by limit(100) sorted by newest date first
-      const qCatatan = query(
-        collection(db, 'catatan_harian'),
-        orderBy('tanggal', 'desc'),
-        limit(100)
-      );
-      const unsubCatatan = onSnapshot(
-        qCatatan,
-        (snap) => {
-          const list: CatatanHarian[] = [];
-          snap.forEach((d) => {
-            list.push({ id: d.id, ...d.data() } as CatatanHarian);
-          });
-          list.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
-          setJournals(list);
-        },
-        (error) => {
-          ensureFallbackData();
-          handleFirestoreError(error, OperationType.GET, 'catatan_harian');
-        }
-      );
-      unsubs.push(unsubCatatan);
+        const listHq: Halaqoh[] = [];
+        snapHq.forEach((d) => listHq.push({ id: d.id, ...d.data() } as Halaqoh));
+        listHq.sort((a, b) => a.nama.localeCompare(b.nama));
+        setHalaqohs(listHq);
 
-      // 8. Student Daily Attendance - Bounded by limit(100) sorted by date
-      const qAbsenSiswa = query(
-        collection(db, 'absen_siswa'),
-        orderBy('tanggal', 'desc'),
-        limit(100)
-      );
-      const unsubAbsenSiswa = onSnapshot(
-        qAbsenSiswa,
-        (snap) => {
-          const list: AbsenSiswa[] = [];
-          snap.forEach((d) => {
-            list.push({ id: d.id, ...d.data() } as AbsenSiswa);
-          });
-          setStudentAttendances(list);
-        },
-        (error) => {
-          ensureFallbackData();
-          handleFirestoreError(error, OperationType.GET, 'absen_siswa');
-        }
-      );
-      unsubs.push(unsubAbsenSiswa);
+        const listSis: Siswa[] = [];
+        snapSis.forEach((d) => listSis.push({ id: d.id, ...d.data() } as Siswa));
+        listSis.sort((a, b) => a.nama.localeCompare(b.nama));
+        setStudents(listSis);
+
+        const listJrn: CatatanHarian[] = [];
+        qJrn.forEach((d) => listJrn.push({ id: d.id, ...d.data() } as CatatanHarian));
+        listJrn.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+        setJournals(listJrn);
+
+        const listAbsSis: AbsenSiswa[] = [];
+        qAbsSis.forEach((d) => listAbsSis.push({ id: d.id, ...d.data() } as AbsenSiswa));
+        setStudentAttendances(listAbsSis);
+      }
+
+      // 4. MUSYRIF ROLE DATA
+      if (targetState === 'musyrif') {
+        const mId = targetUserId || currentUser?.id;
+        const qAbsMusQuery = mId
+          ? query(collection(db, 'absen_musyrif'), where('musyrifId', '==', mId), orderBy('tanggal', 'desc'), limit(30))
+          : query(collection(db, 'absen_musyrif'), orderBy('tanggal', 'desc'), limit(30));
+
+        const [qAbsMus, snapKls, snapHq, snapSis, qJrn, qAbsSis] = await Promise.all([
+          getDocs(qAbsMusQuery),
+          getDocs(collection(db, 'classes')),
+          getDocs(collection(db, 'halaqoh')),
+          getDocs(collection(db, 'students')),
+          getDocs(query(collection(db, 'catatan_harian'), orderBy('tanggal', 'desc'), limit(100))),
+          getDocs(query(collection(db, 'absen_siswa'), orderBy('tanggal', 'desc'), limit(100))),
+        ]);
+
+        const listAbsMus: AbsenMusyrif[] = [];
+        qAbsMus.forEach((d) => listAbsMus.push({ id: d.id, ...d.data() } as AbsenMusyrif));
+        setMusyrifAttendances(listAbsMus);
+
+        const listKls: Kelas[] = [];
+        snapKls.forEach((d) => listKls.push({ id: d.id, ...d.data() } as Kelas));
+        listKls.sort((a, b) => a.nama.localeCompare(b.nama));
+        setClasses(listKls);
+
+        const listHq: Halaqoh[] = [];
+        snapHq.forEach((d) => listHq.push({ id: d.id, ...d.data() } as Halaqoh));
+        listHq.sort((a, b) => a.nama.localeCompare(b.nama));
+        setHalaqohs(listHq);
+
+        const listSis: Siswa[] = [];
+        snapSis.forEach((d) => listSis.push({ id: d.id, ...d.data() } as Siswa));
+        listSis.sort((a, b) => a.nama.localeCompare(b.nama));
+        setStudents(listSis);
+
+        const listJrn: CatatanHarian[] = [];
+        qJrn.forEach((d) => listJrn.push({ id: d.id, ...d.data() } as CatatanHarian));
+        listJrn.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+        setJournals(listJrn);
+
+        const listAbsSis: AbsenSiswa[] = [];
+        qAbsSis.forEach((d) => listAbsSis.push({ id: d.id, ...d.data() } as AbsenSiswa));
+        setStudentAttendances(listAbsSis);
+      }
+    } catch (error) {
+      console.warn("Failed fetching action data from Firestore:", error);
+      ensureFallbackData();
     }
+  };
 
-    return () => {
-      unsubs.forEach((unsub) => unsub());
-    };
-  }, [appState]);
+  // Trigger fetch only when appState or user ID changes
+  useEffect(() => {
+    fetchRoleData(appState, currentUser?.id);
+  }, [appState, currentUser?.id]);
 
   const refreshAllData = async () => {
-    // Already synced via onSnapshot listeners, but provides manual reload hook if needed
-    console.log("Real-time listener handles sync. Refresh complete.");
+    await fetchRoleData(appState, currentUser?.id);
   };
 
   const handleLoginSuccess = (role: 'admin' | 'musyrif', userId?: string, userNama?: string) => {
