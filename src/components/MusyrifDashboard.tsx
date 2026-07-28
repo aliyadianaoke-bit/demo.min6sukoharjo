@@ -226,8 +226,26 @@ export default function MusyrifDashboard({
   };
 
   const handleMarkAllPresent = async () => {
-    const targetStudents = myStudents;
-    if (targetStudents.length === 0) return;
+    // Apply attendance strictly to the currently filtered/sorted students
+    const targetStudents = myStudents.filter(s => {
+      if (absenSiswaKelasFilter !== 'all') {
+        if (s.kelasId !== absenSiswaKelasFilter && s.kelasNama !== absenSiswaKelasFilter) {
+          return false;
+        }
+      }
+      if (absenSiswaSearch.trim()) {
+        const term = absenSiswaSearch.toLowerCase();
+        return s.nama.toLowerCase().includes(term) ||
+               (s.noInduk && s.noInduk.toLowerCase().includes(term)) ||
+               (s.kelasNama && s.kelasNama.toLowerCase().includes(term));
+      }
+      return true;
+    });
+
+    if (targetStudents.length === 0) {
+      showFeedback('Tidak ada data santri pada kriteria filter/pencarian saat ini.', 'danger');
+      return;
+    }
     
     setIsSaving(true);
     let successCount = 0;
@@ -254,9 +272,9 @@ export default function MusyrifDashboard({
         }
       }
       if (successCount > 0) {
-        showFeedback(`Berhasil mengabsen 'Hadir' untuk ${successCount} santri yang belum diabsen.`);
+        showFeedback(`Berhasil mengabsen 'Hadir' untuk ${successCount} santri terfilter.`);
       } else {
-        showFeedback('Semua santri sudah memiliki catatan absen hari ini.');
+        showFeedback('Semua santri pada filter ini sudah memiliki catatan absen hari ini.');
       }
     } catch (err: any) {
       console.error('Failed to mark all present:', err);

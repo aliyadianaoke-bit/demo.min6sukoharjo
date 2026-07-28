@@ -135,7 +135,10 @@ export default function AdminDashboard({
       setAttendances(list);
       setLoadingAbsen(false);
     }, (err) => {
-      console.error('Error fetching admin attendances:', err);
+      console.warn('Syncing admin attendances fallback to local state:', err);
+      if (musyrifAttendances && musyrifAttendances.length > 0) {
+        setAttendances(musyrifAttendances);
+      }
       setLoadingAbsen(false);
     });
 
@@ -199,6 +202,31 @@ export default function AdminDashboard({
     
     return nameMatch && dateMatch;
   });
+
+  const handleApproveAllFilteredAbsen = async () => {
+    const unapproved = filteredAttendances.filter(a => a.status !== 'Disetujui');
+    if (unapproved.length === 0) {
+      showFeedback('Semua data absensi musyrif pada filter saat ini sudah disetujui.');
+      return;
+    }
+
+    const confirmMsg = `Setujui (ACC) ${unapproved.length} data absensi musyrif yang sedang disaring?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsSaving(true);
+    try {
+      for (const item of unapproved) {
+        await updateDoc(doc(db, 'absen_musyrif', item.id), {
+          status: 'Disetujui'
+        });
+      }
+      showFeedback(`Berhasil menyetujui (ACC) ${unapproved.length} data kehadiran musyrif!`);
+    } catch (err: any) {
+      showFeedback('Gagal menyetujui data massal: ' + err.message, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Helpers
   const showFeedback = (text: string, type: 'success' | 'danger' = 'success') => {
@@ -2328,6 +2356,17 @@ export default function AdminDashboard({
                   <h3 className="text-lg font-extrabold text-slate-800">Kelola Absen Musyrif</h3>
                   <p className="text-xs text-slate-500">Monitor daftar kehadiran, hari, tanggal, waktu, dan verifikasi foto selfie para Musyrif</p>
                 </div>
+                {filteredAttendances.length > 0 && (
+                  <button
+                    onClick={handleApproveAllFilteredAbsen}
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-xs self-start sm:self-auto"
+                    title="Setujui (ACC) seluruh data absensi musyrif yang saat ini tampil berdasarkan filter/pencarian"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    <span>ACC Semua (Tersaring)</span>
+                  </button>
+                )}
               </div>
 
               {/* Filters */}
