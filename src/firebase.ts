@@ -59,8 +59,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.warn(`Firestore ${operationType} warning on ${path}:`, errInfo.error);
+  return errInfo;
 }
 
 // Seed function to initialize basic settings, demo classes, and demo accounts
@@ -210,7 +210,6 @@ export async function seedInitialData() {
       console.log("Firebase initial data seeded successfully.");
     }
   } catch (error) {
-    console.error("Error seeding initial data:", error);
-    handleFirestoreError(error, OperationType.WRITE, 'seed_initial_data');
+    console.warn("Seeding initial data skipped (quota reached or network restriction):", error);
   }
 }

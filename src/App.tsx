@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db, seedInitialData } from './firebase';
-import { collection, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { db, seedInitialData, handleFirestoreError, OperationType } from './firebase';
+import { collection, onSnapshot, doc, query, orderBy, limit } from 'firebase/firestore';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from './types';
 import { isMusyrifAutoOff14 } from './utils';
 import HomeView from './components/HomeView';
@@ -22,12 +22,48 @@ export default function App() {
   const [musyrifAttendances, setMusyrifAttendances] = useState<AbsenMusyrif[]>([]);
   const [adminPass, setAdminPass] = useState('admin123'); // fallback default
   const [musyrifLoginEnabled, setMusyrifLoginEnabled] = useState(true);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
+
+  // Fallback demo data if Firestore hits free tier quota limit
+  const ensureFallbackData = () => {
+    setQuotaExceeded(true);
+    setMusyrifs((prev) => prev.length ? prev : [
+      { id: 'usr-1', nim: '202601001', nama: 'Ahmad Muzakki, S.Pd.', username: 'ahmad', password: 'password123', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
+      { id: 'usr-2', nim: '202601002', nama: 'Umar Al-Faruq', username: 'umar', password: 'password123', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' }
+    ]);
+    setClasses((prev) => prev.length ? prev : [
+      { id: 'kls-1', nama: 'Kelas 1A' },
+      { id: 'kls-2', nama: 'Kelas 2B' },
+      { id: 'kls-3', nama: 'Kelas 3A' },
+      { id: 'kls-4', nama: 'Kelas 4A' },
+      { id: 'kls-5', nama: 'Kelas 5B' },
+      { id: 'kls-6', nama: 'Kelas 6A' }
+    ]);
+    setHalaqohs((prev) => prev.length ? prev : [
+      { id: 'hq-1', nama: 'Halaqoh Al-Kahfi', musyrifId: 'usr-1', musyrifNama: 'Ahmad Muzakki, S.Pd.' },
+      { id: 'hq-2', nama: 'Halaqoh An-Nur', musyrifId: 'usr-2', musyrifNama: 'Umar Al-Faruq' },
+      { id: 'hq-3', nama: 'Halaqoh At-Tin', musyrifId: '', musyrifNama: 'Belum Ditentukan' }
+    ]);
+    setStudents((prev) => prev.length ? prev : [
+      { id: 'sis-1', noInduk: '1001', nama: 'Abdurrahman Wahid', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
+      { id: 'sis-2', noInduk: '1002', nama: 'Aisyah Humaira', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
+      { id: 'sis-3', noInduk: '1003', nama: 'Muhammad Bilal', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
+      { id: 'sis-4', noInduk: '1004', nama: 'Fathimah Az-Zahra', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' },
+      { id: 'sis-5', noInduk: '1005', nama: 'Yusuf Al-Banjari', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' },
+      { id: 'sis-6', noInduk: '1006', nama: 'Khadijah Al-Kubra', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-3', halaqohNama: 'Halaqoh At-Tin' }
+    ]);
+  };
 
   // Load and seed initial data once
   useEffect(() => {
     async function init() {
       // Seed if necessary
-      await seedInitialData();
+      try {
+        await seedInitialData();
+      } catch (e) {
+        console.warn("Seeding initial data skipped due to quota limit:", e);
+        ensureFallbackData();
+      }
 
       // Restore session from localStorage if exists and not expired
       const savedState = localStorage.getItem('absen_app_state');
@@ -96,105 +132,180 @@ export default function App() {
     return () => clearInterval(checkInterval);
   }, [appState, currentUser, musyrifAttendances]);
 
-  // Fetch / Sync all collections in real-time
+  // Fetch / Sync collections with Quota Savings Mode (Scoped Listening + Query Limits + Error Callbacks)
   useEffect(() => {
-    // 1. Sync settings (admin password and musyrif login status)
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'admin'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data && data.adminPassword) {
-          setAdminPass(data.adminPassword);
+    const unsubs: Array<() => void> = [];
+
+    // 1. Settings (admin password and musyrif login status) - Always active (lightweight doc listener)
+    const unsubSettings = onSnapshot(
+      doc(db, 'settings', 'admin'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.adminPassword) {
+            setAdminPass(data.adminPassword);
+          }
+          if (data && typeof data.musyrifLoginEnabled === 'boolean') {
+            setMusyrifLoginEnabled(data.musyrifLoginEnabled);
+          } else {
+            setMusyrifLoginEnabled(true);
+          }
         }
-        if (data && typeof data.musyrifLoginEnabled === 'boolean') {
-          setMusyrifLoginEnabled(data.musyrifLoginEnabled);
-        } else {
-          setMusyrifLoginEnabled(true);
-        }
+      },
+      (error) => {
+        ensureFallbackData();
+        handleFirestoreError(error, OperationType.GET, 'settings/admin');
       }
-    });
+    );
+    unsubs.push(unsubSettings);
 
-    // 2. Sync classes
-    const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
-      const list: Kelas[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as Kelas);
-      });
-      // Sort alphabetically
-      list.sort((a, b) => a.nama.localeCompare(b.nama));
-      setClasses(list);
-    });
+    // 2. Musyrif List - Always active for home login modal & dashboard
+    const unsubMusyrif = onSnapshot(
+      collection(db, 'musyrif'),
+      (snap) => {
+        const list: Musyrif[] = [];
+        snap.forEach((d) => {
+          list.push({ id: d.id, ...d.data() } as Musyrif);
+        });
+        list.sort((a, b) => a.nama.localeCompare(b.nama));
+        setMusyrifs(list);
+      },
+      (error) => {
+        ensureFallbackData();
+        handleFirestoreError(error, OperationType.GET, 'musyrif');
+      }
+    );
+    unsubs.push(unsubMusyrif);
 
-    // 3. Sync halaqoh
-    const unsubHalaqoh = onSnapshot(collection(db, 'halaqoh'), (snap) => {
-      const list: Halaqoh[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as Halaqoh);
-      });
-      list.sort((a, b) => a.nama.localeCompare(b.nama));
-      setHalaqohs(list);
-    });
+    // 3. Musyrif Attendance - Query recent records with limit(50) to save reads
+    const qAbsenMusyrif = query(
+      collection(db, 'absen_musyrif'),
+      orderBy('tanggal', 'desc'),
+      limit(50)
+    );
+    const unsubAbsenMusyrif = onSnapshot(
+      qAbsenMusyrif,
+      (snap) => {
+        const list: AbsenMusyrif[] = [];
+        snap.forEach((d) => {
+          list.push({ id: d.id, ...d.data() } as AbsenMusyrif);
+        });
+        setMusyrifAttendances(list);
+      },
+      (error) => {
+        ensureFallbackData();
+        handleFirestoreError(error, OperationType.GET, 'absen_musyrif');
+      }
+    );
+    unsubs.push(unsubAbsenMusyrif);
 
-    // 4. Sync musyrif
-    const unsubMusyrif = onSnapshot(collection(db, 'musyrif'), (snap) => {
-      const list: Musyrif[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as Musyrif);
-      });
-      list.sort((a, b) => a.nama.localeCompare(b.nama));
-      setMusyrifs(list);
-    });
+    // ONLY LISTEN TO HEAVY/MANAGEMENT COLLECTIONS WHEN IN ADMIN OR MUSYRIF DASHBOARD
+    // This prevents unauthenticated home page visitors from executing reads on classes, halaqoh, students, journals, student attendance!
+    if (appState === 'admin' || appState === 'musyrif') {
+      // 4. Classes
+      const unsubClasses = onSnapshot(
+        collection(db, 'classes'),
+        (snap) => {
+          const list: Kelas[] = [];
+          snap.forEach((d) => {
+            list.push({ id: d.id, ...d.data() } as Kelas);
+          });
+          list.sort((a, b) => a.nama.localeCompare(b.nama));
+          setClasses(list);
+        },
+        (error) => {
+          ensureFallbackData();
+          handleFirestoreError(error, OperationType.GET, 'classes');
+        }
+      );
+      unsubs.push(unsubClasses);
 
-    // 5. Sync students
-    const unsubStudents = onSnapshot(collection(db, 'students'), (snap) => {
-      const list: Siswa[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as Siswa);
-      });
-      // Sort by name
-      list.sort((a, b) => a.nama.localeCompare(b.nama));
-      setStudents(list);
-    });
+      // 5. Halaqoh
+      const unsubHalaqoh = onSnapshot(
+        collection(db, 'halaqoh'),
+        (snap) => {
+          const list: Halaqoh[] = [];
+          snap.forEach((d) => {
+            list.push({ id: d.id, ...d.data() } as Halaqoh);
+          });
+          list.sort((a, b) => a.nama.localeCompare(b.nama));
+          setHalaqohs(list);
+        },
+        (error) => {
+          ensureFallbackData();
+          handleFirestoreError(error, OperationType.GET, 'halaqoh');
+        }
+      );
+      unsubs.push(unsubHalaqoh);
 
-    // 6. Sync daily setoran journals
-    const unsubCatatan = onSnapshot(collection(db, 'catatan_harian'), (snap) => {
-      const list: CatatanHarian[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as CatatanHarian);
-      });
-      // Sort by newest date first
-      list.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
-      setJournals(list);
-    });
+      // 6. Students
+      const unsubStudents = onSnapshot(
+        collection(db, 'students'),
+        (snap) => {
+          const list: Siswa[] = [];
+          snap.forEach((d) => {
+            list.push({ id: d.id, ...d.data() } as Siswa);
+          });
+          list.sort((a, b) => a.nama.localeCompare(b.nama));
+          setStudents(list);
+        },
+        (error) => {
+          ensureFallbackData();
+          handleFirestoreError(error, OperationType.GET, 'students');
+        }
+      );
+      unsubs.push(unsubStudents);
 
-    // 7. Sync student daily attendance
-    const unsubAbsenSiswa = onSnapshot(collection(db, 'absen_siswa'), (snap) => {
-      const list: AbsenSiswa[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as AbsenSiswa);
-      });
-      setStudentAttendances(list);
-    });
+      // 7. Daily Setoran Journals - Bounded by limit(100) sorted by newest date first
+      const qCatatan = query(
+        collection(db, 'catatan_harian'),
+        orderBy('tanggal', 'desc'),
+        limit(100)
+      );
+      const unsubCatatan = onSnapshot(
+        qCatatan,
+        (snap) => {
+          const list: CatatanHarian[] = [];
+          snap.forEach((d) => {
+            list.push({ id: d.id, ...d.data() } as CatatanHarian);
+          });
+          list.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+          setJournals(list);
+        },
+        (error) => {
+          ensureFallbackData();
+          handleFirestoreError(error, OperationType.GET, 'catatan_harian');
+        }
+      );
+      unsubs.push(unsubCatatan);
 
-    // 8. Sync musyrif attendance
-    const unsubAbsenMusyrif = onSnapshot(collection(db, 'absen_musyrif'), (snap) => {
-      const list: AbsenMusyrif[] = [];
-      snap.forEach((d) => {
-        list.push({ id: d.id, ...d.data() } as AbsenMusyrif);
-      });
-      setMusyrifAttendances(list);
-    });
+      // 8. Student Daily Attendance - Bounded by limit(100) sorted by date
+      const qAbsenSiswa = query(
+        collection(db, 'absen_siswa'),
+        orderBy('tanggal', 'desc'),
+        limit(100)
+      );
+      const unsubAbsenSiswa = onSnapshot(
+        qAbsenSiswa,
+        (snap) => {
+          const list: AbsenSiswa[] = [];
+          snap.forEach((d) => {
+            list.push({ id: d.id, ...d.data() } as AbsenSiswa);
+          });
+          setStudentAttendances(list);
+        },
+        (error) => {
+          ensureFallbackData();
+          handleFirestoreError(error, OperationType.GET, 'absen_siswa');
+        }
+      );
+      unsubs.push(unsubAbsenSiswa);
+    }
 
     return () => {
-      unsubSettings();
-      unsubClasses();
-      unsubHalaqoh();
-      unsubMusyrif();
-      unsubStudents();
-      unsubCatatan();
-      unsubAbsenSiswa();
-      unsubAbsenMusyrif();
+      unsubs.forEach((unsub) => unsub());
     };
-  }, []);
+  }, [appState]);
 
   const refreshAllData = async () => {
     // Already synced via onSnapshot listeners, but provides manual reload hook if needed

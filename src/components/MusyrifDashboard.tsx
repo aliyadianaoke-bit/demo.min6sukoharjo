@@ -95,26 +95,16 @@ export default function MusyrifDashboard({
     );
   }, [targetSiswa, selectedKategori, journals, editingJournalId]);
 
-  // Check today's attendance on mount
+  // Check today's attendance on mount using synchronized state (no Firestore read calls needed)
   useEffect(() => {
-    async function checkTodayAttendance() {
-      try {
-        const todayStr = new Date().toISOString().split('T')[0];
-        const q = query(
-          collection(db, 'absen_musyrif'),
-          where('musyrifId', '==', userId),
-          where('tanggal', '==', todayStr)
-        );
-        const snap = await getDocs(q);
-        if (snap.empty) {
-          setShowAutoAbsenModal(true);
-        }
-      } catch (err) {
-        console.error('Error checking today attendance:', err);
-      }
+    const todayStr = new Date().toISOString().split('T')[0];
+    const hasAttendedToday = (studentAttendances || []).some(
+      a => a.musyrifId === userId && a.tanggal === todayStr
+    );
+    if (!hasAttendedToday) {
+      setShowAutoAbsenModal(true);
     }
-    checkTodayAttendance();
-  }, [userId]);
+  }, [userId, studentAttendances]);
 
   // Automatically open Halaqoh Activation Modal if none is active when switching to Input or Absen Siswa tab
   useEffect(() => {
@@ -147,18 +137,14 @@ export default function MusyrifDashboard({
       const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
       const hariStr = days[now.getDay()];
 
-      // Query for existing attendance record for today to prevent duplicates
-      const q = query(
-        collection(db, 'absen_musyrif'),
-        where('musyrifId', '==', userId),
-        where('tanggal', '==', tanggalStr)
+      // Check existing attendance from synchronized local state to save Firestore reads
+      const existingRecord = (studentAttendances || []).find(
+        a => a.musyrifId === userId && a.tanggal === tanggalStr
       );
-      const snap = await getDocs(q);
 
-      if (!snap.empty) {
+      if (existingRecord) {
         // Update existing record
-        const docId = snap.docs[0].id;
-        const docRef = doc(db, 'absen_musyrif', docId);
+        const docRef = doc(db, 'absen_musyrif', existingRecord.id);
         await updateDoc(docRef, {
           waktu: waktuStr,
           hari: hariStr,

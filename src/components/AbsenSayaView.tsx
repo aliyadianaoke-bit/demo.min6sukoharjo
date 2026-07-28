@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, where, orderBy, addDoc, doc, updateDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { collection, onSnapshot, query, where, limit, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { Camera, Calendar, Clock, Smile, AlertCircle, RefreshCw, CheckCircle } from 'lucide-react';
 import AbsenCamera from './AbsenCamera';
 
@@ -44,12 +44,13 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
     });
   };
 
-  // Sync attendance list for current musyrif in real-time
+  // Sync attendance list for current musyrif in real-time (Quota saver: limit to recent 60 logs)
   useEffect(() => {
     setLoading(true);
     const q = query(
       collection(db, 'absen_musyrif'),
-      where('musyrifId', '==', userId)
+      where('musyrifId', '==', userId),
+      limit(60)
     );
 
     const unsub = onSnapshot(q, (snap) => {
@@ -67,6 +68,7 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
       setLoading(false);
     }, (err) => {
       console.error('Error fetching attendance logs:', err);
+      handleFirestoreError(err, OperationType.GET, 'absen_musyrif');
       setLoading(false);
     });
 

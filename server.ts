@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import fs from "fs";
 import { createServer as createViteServer } from "vite";
 
 async function startServer() {
@@ -10,30 +9,6 @@ async function startServer() {
   // Serve static assets or API endpoints if any are needed
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
-  });
-
-  // API route for exporting JSON database
-  app.get("/api/export/json", (req, res) => {
-    const filePath = path.resolve(process.cwd(), "exported_db.json");
-    if (fs.existsSync(filePath)) {
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Content-Disposition", 'attachment; filename="exported_db.json"');
-      fs.createReadStream(filePath).pipe(res);
-    } else {
-      res.status(404).json({ error: "Export file not found" });
-    }
-  });
-
-  // API route for exporting Supabase SQL script
-  app.get("/api/export/sql", (req, res) => {
-    const filePath = path.resolve(process.cwd(), "supabase_migration.sql");
-    if (fs.existsSync(filePath)) {
-      res.setHeader("Content-Type", "text/plain");
-      res.setHeader("Content-Disposition", 'attachment; filename="supabase_migration.sql"');
-      fs.createReadStream(filePath).pipe(res);
-    } else {
-      res.status(404).json({ error: "SQL Export file not found" });
-    }
   });
 
   // Vite integration
