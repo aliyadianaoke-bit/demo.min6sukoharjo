@@ -2496,14 +2496,18 @@ export default function AdminDashboard({
                                 {absen.fotoUrl ? (
                                   <button
                                     onClick={() => setPreviewPhoto(absen.fotoUrl)}
-                                    className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 mx-auto cursor-pointer group hover:border-emerald-500 transition shadow-xs block"
+                                    className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 mx-auto cursor-pointer group hover:border-emerald-500 transition shadow-xs flex items-center justify-center bg-slate-100"
                                   >
                                     <img 
                                       src={absen.fotoUrl} 
                                       alt="Selfie" 
                                       className="w-full h-full object-cover group-hover:scale-110 transition duration-200" 
                                       referrerPolicy="no-referrer"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                      }}
                                     />
+                                    <Camera className="w-4 h-4 text-slate-400" />
                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
                                       <Camera className="w-4 h-4 text-white" />
                                     </div>
@@ -2579,14 +2583,18 @@ export default function AdminDashboard({
                           {absen.fotoUrl && (
                             <button
                               onClick={() => setPreviewPhoto(absen.fotoUrl)}
-                              className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0 cursor-pointer shadow-xs relative group"
+                              className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0 cursor-pointer shadow-xs relative group flex items-center justify-center bg-slate-100"
                             >
                               <img 
                                 src={absen.fotoUrl} 
                                 alt="Selfie Mobile" 
                                 className="w-full h-full object-cover" 
                                 referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
                               />
+                              <Camera className="w-5 h-5 text-slate-400" />
                             </button>
                           )}
                           <div className="flex-1 min-w-0 space-y-1">

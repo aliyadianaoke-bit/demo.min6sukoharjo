@@ -242,19 +242,28 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
                 {/* Left: Avatar & Date details */}
                 <div className="flex items-center gap-3.5 min-w-0">
                   <div 
-                    onClick={() => setPreviewPhoto(item.fotoUrl)}
-                    className="relative w-12 h-12 rounded-2xl bg-slate-100 overflow-hidden border border-slate-200 cursor-pointer group shrink-0 shadow-inner"
+                    onClick={() => item.fotoUrl && setPreviewPhoto(item.fotoUrl)}
+                    className="relative w-12 h-12 rounded-2xl bg-slate-100 overflow-hidden border border-slate-200 cursor-pointer group shrink-0 shadow-inner flex items-center justify-center"
                     title="Klik untuk perbesar foto"
                   >
-                    <img 
-                      src={item.fotoUrl} 
-                      alt={`Selfie ${item.tanggal}`} 
-                      className="w-full h-full object-cover group-hover:scale-110 transition duration-250"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                      <Camera className="w-4 h-4 text-white" />
-                    </div>
+                    {item.fotoUrl ? (
+                      <img 
+                        src={item.fotoUrl} 
+                        alt={`Selfie ${item.tanggal}`} 
+                        className="w-full h-full object-cover group-hover:scale-110 transition duration-250"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          // Hide broken image and show camera icon
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : null}
+                    <Camera className="w-5 h-5 text-slate-400" />
+                    {item.fotoUrl && (
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                        <Camera className="w-4 h-4 text-white" />
+                      </div>
+                    )}
                   </div>
 
                   <div className="min-w-0">

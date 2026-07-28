@@ -6,42 +6,55 @@ interface AbsenCameraProps {
   onCancel: () => void;
 }
 
-const compressImage = (base64Str: string, maxWidth = 600, maxHeight = 600, quality = 0.7): Promise<string> => {
+const compressImage = (base64Str: string, maxWidth = 480, maxHeight = 480, quality = 0.6): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.src = base64Str;
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      let width = img.width;
-      let height = img.height;
+      try {
+        const canvas = document.createElement('canvas');
+        let width = img.width || 480;
+        let height = img.height || 480;
 
-      if (width > height) {
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
         }
-      } else {
-        if (height > maxHeight) {
-          width = Math.round((width * maxHeight) / height);
-          height = maxHeight;
+
+        canvas.width = Math.max(width, 1);
+        canvas.height = Math.max(height, 1);
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context unavailable'));
+          return;
         }
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        
+        if (compressedDataUrl && compressedDataUrl.startsWith('data:image/')) {
+          resolve(compressedDataUrl);
+        } else {
+          reject(new Error('Format foto tidak valid'));
+        }
+      } catch (e) {
+        reject(e);
       }
-
-      canvas.width = width;
-      canvas.height = height;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(base64Str);
-        return;
-      }
-
-      ctx.drawImage(img, 0, 0, width, height);
-      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-      resolve(compressedDataUrl);
     };
-    img.onerror = (err) => {
-      reject(err);
+    img.onerror = () => {
+      reject(new Error('Gagal membaca data gambar'));
     };
   });
 };
@@ -69,11 +82,21 @@ export default function AbsenCamera({ onCapture, onCancel }: AbsenCameraProps) {
     reader.onloadend = async () => {
       try {
         const originalBase64 = reader.result as string;
-        const compressedBase64 = await compressImage(originalBase64);
-        setCapturedImage(compressedBase64);
-      } catch (err) {
+        let finalImage = await compressImage(originalBase64, 480, 480, 0.6);
+        
+        // If image is still unusually large (>300KB Base64), compress further
+        if (finalImage.length > 400000) {
+          finalImage = await compressImage(finalImage, 320, 320, 0.5);
+        }
+
+        if (finalImage.length > 800000) {
+          throw new Error('Ukuran berkas gambar terlalu besar.');
+        }
+
+        setCapturedImage(finalImage);
+      } catch (err: any) {
         console.error('Error compressing image:', err);
-        setCapturedImage(reader.result as string);
+        setErrorMessage(err.message || 'Gagal memproses gambar. Silakan gunakan foto lain atau ambil foto ulang.');
       } finally {
         setIsProcessing(false);
       }
