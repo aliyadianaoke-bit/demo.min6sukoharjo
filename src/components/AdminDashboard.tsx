@@ -284,10 +284,10 @@ export default function AdminDashboard({
     setIsSaving(true);
     try {
       if (modalType === 'add') {
-        await addClass({ nama: kelasNama.trim() });
+        await addClass(kelasNama.trim());
         showFeedback('Berhasil menambah kelas baru!');
       } else if (modalType === 'edit' && editId) {
-        await updateClass(editId, { nama: kelasNama.trim() });
+        await updateClass(editId, kelasNama.trim());
         // Update students with old class name
         const associatedStudents = students.filter(s => s.kelasId === editId);
         for (const s of associatedStudents) {
