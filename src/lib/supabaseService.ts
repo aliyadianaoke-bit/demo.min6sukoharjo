@@ -1,14 +1,4 @@
 import { supabase, isSupabaseConfigured } from './supabase';
-import { db, seedInitialData } from '../firebase';
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  setDoc,
-  deleteDoc,
-  onSnapshot
-} from 'firebase/firestore';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from '../types';
 
 const safeString = (val: any): string => {
@@ -20,7 +10,7 @@ const safeString = (val: any): string => {
   return String(val);
 };
 
-// Fallback in-memory store
+// Memory fallback store (used when Supabase is not configured or offline)
 let memorySettings = { adminPassword: 'admin123', musyrifLoginEnabled: true };
 
 let memoryClasses: Kelas[] = [
@@ -85,15 +75,10 @@ let memoryAbsenSiswa: AbsenSiswa[] = [];
 // Helper to generate IDs
 export const generateId = (prefix: string = 'id') => `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-// 1. Seed initial data into Cloud Database
+// 1. Seed initial data into Supabase if empty
 export async function seedInitialSupabaseData() {
-  try {
-    await seedInitialData();
-  } catch (e) {
-    console.warn("Firestore seed check:", e);
-  }
-
   if (!isSupabaseConfigured()) {
+    console.info("Supabase URL / ANON_KEY not configured. Using local memory fallback.");
     return;
   }
 
@@ -101,7 +86,7 @@ export async function seedInitialSupabaseData() {
     const { data: settingsData, error } = await supabase.from('settings').select('*').limit(1);
     
     if (error || !settingsData || settingsData.length === 0) {
-      console.info("Seeding initial data into Supabase...");
+      console.info("Seeding initial schema and data into Supabase...");
       
       await supabase.from('settings').upsert({ id: 'admin', adminPassword: 'admin123', musyrifLoginEnabled: true });
 
@@ -120,7 +105,7 @@ export async function seedInitialSupabaseData() {
       for (const item of memoryJournals) {
         await supabase.from('catatan_harian').upsert(item);
       }
-      console.info("Supabase database successfully seeded with initial schema data.");
+      console.info("Supabase database successfully seeded.");
     }
   } catch (err) {
     console.warn("Supabase seeding check encountered an issue:", err);
@@ -132,22 +117,13 @@ export async function getSettings() {
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase.from('settings').select('*').eq('id', 'admin').single();
-      if (!error && data) return data;
+      if (!error && data) {
+        memorySettings = { adminPassword: data.adminPassword || 'admin123', musyrifLoginEnabled: data.musyrifLoginEnabled ?? true };
+        return memorySettings;
+      }
     } catch (e) {
-      console.warn("Using Firestore/memory fallback for settings:", e);
+      console.warn("Supabase getSettings fallback to memory:", e);
     }
-  }
-  try {
-    const docSnap = await getDoc(doc(db, 'settings', 'admin'));
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      memorySettings = { ...memorySettings, ...data };
-      return memorySettings;
-    } else {
-      await setDoc(doc(db, 'settings', 'admin'), memorySettings);
-    }
-  } catch (e) {
-    console.warn("Firestore getSettings failed:", e);
   }
   return memorySettings;
 }
@@ -161,42 +137,18 @@ export async function updateSettings(updates: Partial<{ adminPassword: string; m
       console.warn("Failed updating Supabase settings:", e);
     }
   }
-  try {
-    await setDoc(doc(db, 'settings', 'admin'), memorySettings, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating Firestore settings:", e);
-  }
   return memorySettings;
 }
 
 // CLASSES
 export async function getClasses(): Promise<Kelas[]> {
-  let list: Kelas[] = [];
+  let list: Kelas[] = memoryClasses;
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase.from('classes').select('*').order('nama', { ascending: true });
       if (!error && data && data.length > 0) list = data as Kelas[];
     } catch (e) {
       console.warn("Supabase getClasses error:", e);
-    }
-  }
-
-  if (list.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'classes'));
-      if (!snap.empty) {
-        const fsList: Kelas[] = [];
-        snap.forEach(d => { fsList.push({ id: d.id, ...d.data() } as Kelas); });
-        if (fsList.length > 0) list = fsList;
-      } else {
-        for (const item of memoryClasses) {
-          await setDoc(doc(db, 'classes', item.id), item);
-        }
-        list = memoryClasses;
-      }
-    } catch (e) {
-      console.warn("Firestore getClasses error:", e);
-      list = memoryClasses;
     }
   }
 
@@ -213,12 +165,6 @@ export async function addClass(input: string | { nama: string }): Promise<Kelas>
   
   memoryClasses.push(newClass);
 
-  try {
-    await setDoc(doc(db, 'classes', newClass.id), newClass);
-  } catch (e) {
-    console.warn("Failed adding class to Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('classes').insert(newClass);
@@ -234,12 +180,6 @@ export async function updateClass(id: string, input: string | { nama: string }):
   const namaStr = typeof input === 'string' ? input : (input && (input as any).nama ? (input as any).nama : String(input || ''));
   memoryClasses = memoryClasses.map(c => c.id === id ? { ...c, nama: namaStr } : c);
 
-  try {
-    await setDoc(doc(db, 'classes', id), { nama: namaStr }, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating class in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('classes').update({ nama: namaStr }).eq('id', id);
@@ -252,12 +192,6 @@ export async function updateClass(id: string, input: string | { nama: string }):
 export async function deleteClass(id: string): Promise<void> {
   memoryClasses = memoryClasses.filter(c => c.id !== id);
 
-  try {
-    await deleteDoc(doc(db, 'classes', id));
-  } catch (e) {
-    console.warn("Failed deleting class in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('classes').delete().eq('id', id);
@@ -269,32 +203,13 @@ export async function deleteClass(id: string): Promise<void> {
 
 // HALAQOH
 export async function getHalaqohs(): Promise<Halaqoh[]> {
-  let list: Halaqoh[] = [];
+  let list: Halaqoh[] = memoryHalaqohs;
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase.from('halaqoh').select('*').order('nama', { ascending: true });
       if (!error && data && data.length > 0) list = data as Halaqoh[];
     } catch (e) {
       console.warn("Supabase getHalaqohs error:", e);
-    }
-  }
-
-  if (list.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'halaqoh'));
-      if (!snap.empty) {
-        const fsList: Halaqoh[] = [];
-        snap.forEach(d => { fsList.push({ id: d.id, ...d.data() } as Halaqoh); });
-        if (fsList.length > 0) list = fsList;
-      } else {
-        for (const item of memoryHalaqohs) {
-          await setDoc(doc(db, 'halaqoh', item.id), item);
-        }
-        list = memoryHalaqohs;
-      }
-    } catch (e) {
-      console.warn("Firestore getHalaqohs error:", e);
-      list = memoryHalaqohs;
     }
   }
 
@@ -310,12 +225,6 @@ export async function addHalaqoh(item: Omit<Halaqoh, 'id'>): Promise<Halaqoh> {
   const newItem: Halaqoh = { id: generateId('hq'), ...item };
   memoryHalaqohs.push(newItem);
 
-  try {
-    await setDoc(doc(db, 'halaqoh', newItem.id), newItem);
-  } catch (e) {
-    console.warn("Failed adding halaqoh to Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('halaqoh').insert(newItem);
@@ -329,12 +238,6 @@ export async function addHalaqoh(item: Omit<Halaqoh, 'id'>): Promise<Halaqoh> {
 export async function updateHalaqoh(id: string, item: Partial<Halaqoh>): Promise<void> {
   memoryHalaqohs = memoryHalaqohs.map(h => h.id === id ? { ...h, ...item } : h);
 
-  try {
-    await setDoc(doc(db, 'halaqoh', id), item, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating halaqoh in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('halaqoh').update(item).eq('id', id);
@@ -347,12 +250,6 @@ export async function updateHalaqoh(id: string, item: Partial<Halaqoh>): Promise
 export async function deleteHalaqoh(id: string): Promise<void> {
   memoryHalaqohs = memoryHalaqohs.filter(h => h.id !== id);
 
-  try {
-    await deleteDoc(doc(db, 'halaqoh', id));
-  } catch (e) {
-    console.warn("Failed deleting halaqoh in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('halaqoh').delete().eq('id', id);
@@ -364,32 +261,13 @@ export async function deleteHalaqoh(id: string): Promise<void> {
 
 // MUSYRIF
 export async function getMusyrifs(): Promise<Musyrif[]> {
-  let list: Musyrif[] = [];
+  let list: Musyrif[] = memoryMusyrifs;
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase.from('musyrif').select('*').order('nama', { ascending: true });
       if (!error && data && data.length > 0) list = data as Musyrif[];
     } catch (e) {
       console.warn("Supabase getMusyrifs error:", e);
-    }
-  }
-
-  if (list.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'musyrif'));
-      if (!snap.empty) {
-        const fsList: Musyrif[] = [];
-        snap.forEach(d => { fsList.push({ id: d.id, ...d.data() } as Musyrif); });
-        if (fsList.length > 0) list = fsList;
-      } else {
-        for (const item of memoryMusyrifs) {
-          await setDoc(doc(db, 'musyrif', item.id), item);
-        }
-        list = memoryMusyrifs;
-      }
-    } catch (e) {
-      console.warn("Firestore getMusyrifs error:", e);
-      list = memoryMusyrifs;
     }
   }
 
@@ -405,12 +283,6 @@ export async function addMusyrif(item: Omit<Musyrif, 'id'>): Promise<Musyrif> {
   const newItem: Musyrif = { id: generateId('usr'), ...item };
   memoryMusyrifs.push(newItem);
 
-  try {
-    await setDoc(doc(db, 'musyrif', newItem.id), newItem);
-  } catch (e) {
-    console.warn("Failed adding musyrif to Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('musyrif').insert(newItem);
@@ -424,12 +296,6 @@ export async function addMusyrif(item: Omit<Musyrif, 'id'>): Promise<Musyrif> {
 export async function updateMusyrif(id: string, item: Partial<Musyrif>): Promise<void> {
   memoryMusyrifs = memoryMusyrifs.map(m => m.id === id ? { ...m, ...item } : m);
 
-  try {
-    await setDoc(doc(db, 'musyrif', id), item, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating musyrif in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('musyrif').update(item).eq('id', id);
@@ -442,12 +308,6 @@ export async function updateMusyrif(id: string, item: Partial<Musyrif>): Promise
 export async function deleteMusyrif(id: string): Promise<void> {
   memoryMusyrifs = memoryMusyrifs.filter(m => m.id !== id);
 
-  try {
-    await deleteDoc(doc(db, 'musyrif', id));
-  } catch (e) {
-    console.warn("Failed deleting musyrif in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('musyrif').delete().eq('id', id);
@@ -459,32 +319,13 @@ export async function deleteMusyrif(id: string): Promise<void> {
 
 // STUDENTS
 export async function getStudents(): Promise<Siswa[]> {
-  let list: Siswa[] = [];
+  let list: Siswa[] = memoryStudents;
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase.from('students').select('*').order('nama', { ascending: true });
       if (!error && data && data.length > 0) list = data as Siswa[];
     } catch (e) {
       console.warn("Supabase getStudents error:", e);
-    }
-  }
-
-  if (list.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'students'));
-      if (!snap.empty) {
-        const fsList: Siswa[] = [];
-        snap.forEach(d => { fsList.push({ id: d.id, ...d.data() } as Siswa); });
-        if (fsList.length > 0) list = fsList;
-      } else {
-        for (const item of memoryStudents) {
-          await setDoc(doc(db, 'students', item.id), item);
-        }
-        list = memoryStudents;
-      }
-    } catch (e) {
-      console.warn("Firestore getStudents error:", e);
-      list = memoryStudents;
     }
   }
 
@@ -500,12 +341,6 @@ export async function addStudent(item: Omit<Siswa, 'id'>): Promise<Siswa> {
   const newItem: Siswa = { id: generateId('sis'), ...item };
   memoryStudents.push(newItem);
 
-  try {
-    await setDoc(doc(db, 'students', newItem.id), newItem);
-  } catch (e) {
-    console.warn("Failed adding student to Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('students').insert(newItem);
@@ -519,12 +354,6 @@ export async function addStudent(item: Omit<Siswa, 'id'>): Promise<Siswa> {
 export async function updateStudent(id: string, item: Partial<Siswa>): Promise<void> {
   memoryStudents = memoryStudents.map(s => s.id === id ? { ...s, ...item } : s);
 
-  try {
-    await setDoc(doc(db, 'students', id), item, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating student in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('students').update(item).eq('id', id);
@@ -537,12 +366,6 @@ export async function updateStudent(id: string, item: Partial<Siswa>): Promise<v
 export async function deleteStudent(id: string): Promise<void> {
   memoryStudents = memoryStudents.filter(s => s.id !== id);
 
-  try {
-    await deleteDoc(doc(db, 'students', id));
-  } catch (e) {
-    console.warn("Failed deleting student in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('students').delete().eq('id', id);
@@ -554,7 +377,7 @@ export async function deleteStudent(id: string): Promise<void> {
 
 // CATATAN HARIAN / JOURNALS
 export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
-  let list: CatatanHarian[] = [];
+  let list: CatatanHarian[] = memoryJournals;
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase
@@ -565,28 +388,6 @@ export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
       if (!error && data && data.length > 0) list = data as CatatanHarian[];
     } catch (e) {
       console.warn("Supabase getJournals error:", e);
-    }
-  }
-
-  if (list.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'catatan_harian'));
-      if (!snap.empty) {
-        const fsList: CatatanHarian[] = [];
-        snap.forEach(d => { fsList.push({ id: d.id, ...d.data() } as CatatanHarian); });
-        if (fsList.length > 0) {
-          fsList.sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
-          list = fsList.slice(0, limitNum);
-        }
-      } else {
-        for (const item of memoryJournals) {
-          await setDoc(doc(db, 'catatan_harian', item.id), item);
-        }
-        list = memoryJournals;
-      }
-    } catch (e) {
-      console.warn("Firestore getJournals error:", e);
-      list = memoryJournals;
     }
   }
 
@@ -602,12 +403,6 @@ export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<Catat
   const newItem: CatatanHarian = { id: generateId('cat'), ...item };
   memoryJournals.unshift(newItem);
 
-  try {
-    await setDoc(doc(db, 'catatan_harian', newItem.id), newItem);
-  } catch (e) {
-    console.warn("Failed adding journal to Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('catatan_harian').insert(newItem);
@@ -621,12 +416,6 @@ export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<Catat
 export async function updateJournal(id: string, item: Partial<CatatanHarian>): Promise<void> {
   memoryJournals = memoryJournals.map(j => j.id === id ? { ...j, ...item } : j);
 
-  try {
-    await setDoc(doc(db, 'catatan_harian', id), item, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating journal in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('catatan_harian').update(item).eq('id', id);
@@ -639,12 +428,6 @@ export async function updateJournal(id: string, item: Partial<CatatanHarian>): P
 export async function deleteJournal(id: string): Promise<void> {
   memoryJournals = memoryJournals.filter(j => j.id !== id);
 
-  try {
-    await deleteDoc(doc(db, 'catatan_harian', id));
-  } catch (e) {
-    console.warn("Failed deleting journal in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('catatan_harian').delete().eq('id', id);
@@ -656,7 +439,7 @@ export async function deleteJournal(id: string): Promise<void> {
 
 // ABSEN MUSYRIF
 export async function getAbsenMusyrif(musyrifId?: string, limitNum = 50): Promise<AbsenMusyrif[]> {
-  let list: AbsenMusyrif[] = [];
+  let list: AbsenMusyrif[] = memoryAbsenMusyrif;
   if (isSupabaseConfigured()) {
     try {
       let queryBuilder = supabase.from('absen_musyrif').select('*').order('tanggal', { ascending: false }).limit(limitNum);
@@ -665,20 +448,6 @@ export async function getAbsenMusyrif(musyrifId?: string, limitNum = 50): Promis
       if (!error && data && data.length > 0) list = data as AbsenMusyrif[];
     } catch (e) {
       console.warn("Supabase getAbsenMusyrif error:", e);
-    }
-  }
-
-  if (list.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'absen_musyrif'));
-      if (!snap.empty) {
-        const fsList: AbsenMusyrif[] = [];
-        snap.forEach(d => { fsList.push({ id: d.id, ...d.data() } as AbsenMusyrif); });
-        list = fsList;
-      }
-    } catch (e) {
-      console.warn("Firestore getAbsenMusyrif error:", e);
-      list = memoryAbsenMusyrif;
     }
   }
 
@@ -693,12 +462,6 @@ export async function addAbsenMusyrif(item: Omit<AbsenMusyrif, 'id'>): Promise<A
   const newItem: AbsenMusyrif = { id: generateId('abm'), ...item };
   memoryAbsenMusyrif.unshift(newItem);
 
-  try {
-    await setDoc(doc(db, 'absen_musyrif', newItem.id), newItem);
-  } catch (e) {
-    console.warn("Failed adding absen musyrif to Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('absen_musyrif').insert(newItem);
@@ -712,12 +475,6 @@ export async function addAbsenMusyrif(item: Omit<AbsenMusyrif, 'id'>): Promise<A
 export async function updateAbsenMusyrif(id: string, item: Partial<AbsenMusyrif>): Promise<void> {
   memoryAbsenMusyrif = memoryAbsenMusyrif.map(a => a.id === id ? { ...a, ...item } : a);
 
-  try {
-    await setDoc(doc(db, 'absen_musyrif', id), item, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating absen musyrif in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('absen_musyrif').update(item).eq('id', id);
@@ -730,12 +487,6 @@ export async function updateAbsenMusyrif(id: string, item: Partial<AbsenMusyrif>
 export async function deleteAbsenMusyrif(id: string): Promise<void> {
   memoryAbsenMusyrif = memoryAbsenMusyrif.filter(a => a.id !== id);
 
-  try {
-    await deleteDoc(doc(db, 'absen_musyrif', id));
-  } catch (e) {
-    console.warn("Failed deleting absen musyrif in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('absen_musyrif').delete().eq('id', id);
@@ -747,7 +498,7 @@ export async function deleteAbsenMusyrif(id: string): Promise<void> {
 
 // ABSEN SISWA
 export async function getAbsenSiswa(musyrifId?: string, limitNum = 100): Promise<AbsenSiswa[]> {
-  let list: AbsenSiswa[] = [];
+  let list: AbsenSiswa[] = memoryAbsenSiswa;
   if (isSupabaseConfigured()) {
     try {
       let queryBuilder = supabase.from('absen_siswa').select('*').order('tanggal', { ascending: false }).limit(limitNum);
@@ -756,20 +507,6 @@ export async function getAbsenSiswa(musyrifId?: string, limitNum = 100): Promise
       if (!error && data && data.length > 0) list = data as AbsenSiswa[];
     } catch (e) {
       console.warn("Supabase getAbsenSiswa error:", e);
-    }
-  }
-
-  if (list.length === 0) {
-    try {
-      const snap = await getDocs(collection(db, 'absen_siswa'));
-      if (!snap.empty) {
-        const fsList: AbsenSiswa[] = [];
-        snap.forEach(d => { fsList.push({ id: d.id, ...d.data() } as AbsenSiswa); });
-        list = fsList;
-      }
-    } catch (e) {
-      console.warn("Firestore getAbsenSiswa error:", e);
-      list = memoryAbsenSiswa;
     }
   }
 
@@ -784,12 +521,6 @@ export async function addAbsenSiswa(item: Omit<AbsenSiswa, 'id'>): Promise<Absen
   const newItem: AbsenSiswa = { id: generateId('abs'), ...item };
   memoryAbsenSiswa.unshift(newItem);
 
-  try {
-    await setDoc(doc(db, 'absen_siswa', newItem.id), newItem);
-  } catch (e) {
-    console.warn("Failed adding absen siswa to Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('absen_siswa').insert(newItem);
@@ -803,12 +534,6 @@ export async function addAbsenSiswa(item: Omit<AbsenSiswa, 'id'>): Promise<Absen
 export async function updateAbsenSiswa(id: string, item: Partial<AbsenSiswa>): Promise<void> {
   memoryAbsenSiswa = memoryAbsenSiswa.map(a => a.id === id ? { ...a, ...item } : a);
 
-  try {
-    await setDoc(doc(db, 'absen_siswa', id), item, { merge: true });
-  } catch (e) {
-    console.warn("Failed updating absen siswa in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('absen_siswa').update(item).eq('id', id);
@@ -821,12 +546,6 @@ export async function updateAbsenSiswa(id: string, item: Partial<AbsenSiswa>): P
 export async function deleteAbsenSiswa(id: string): Promise<void> {
   memoryAbsenSiswa = memoryAbsenSiswa.filter(a => a.id !== id);
 
-  try {
-    await deleteDoc(doc(db, 'absen_siswa', id));
-  } catch (e) {
-    console.warn("Failed deleting absen siswa in Firestore:", e);
-  }
-
   if (isSupabaseConfigured()) {
     try {
       await supabase.from('absen_siswa').delete().eq('id', id);
@@ -838,38 +557,27 @@ export async function deleteAbsenSiswa(id: string): Promise<void> {
 
 // REALTIME SUBSCRIPTIONS
 export function subscribeToTable(tableName: string, callback: (payload: any) => void) {
-  let unsubSupabase = () => {};
-  let unsubFirestore = () => {};
-
   if (isSupabaseConfigured()) {
     try {
+      const channelId = `realtime:${tableName}:${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const channel = supabase
-        .channel(`public:${tableName}`)
+        .channel(channelId)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: tableName },
           (payload) => callback(payload)
         )
         .subscribe();
-      unsubSupabase = () => { supabase.removeChannel(channel); };
+      return () => {
+        try {
+          supabase.removeChannel(channel);
+        } catch (e) {
+          // ignore cleanup errors
+        }
+      };
     } catch (e) {
       console.warn("Supabase realtime subscribe error:", e);
     }
   }
-
-  try {
-    const colRef = collection(db, tableName);
-    unsubFirestore = onSnapshot(colRef, (snapshot) => {
-      callback({ eventType: 'UPDATE', new: snapshot });
-    }, (err) => {
-      console.warn("Firestore snapshot listener warning:", err);
-    });
-  } catch (e) {
-    console.warn("Could not attach Firestore listener:", e);
-  }
-
-  return () => {
-    unsubSupabase();
-    unsubFirestore();
-  };
+  return () => {};
 }

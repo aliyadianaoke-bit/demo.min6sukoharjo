@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Component, useState, useEffect } from 'react';
 import { 
   seedInitialSupabaseData, 
   getSettings, 
@@ -8,7 +8,8 @@ import {
   getStudents, 
   getJournals, 
   getAbsenMusyrif, 
-  getAbsenSiswa 
+  getAbsenSiswa,
+  subscribeToTable
 } from './lib/supabaseService';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from './types';
 import { isMusyrifAutoOff14 } from './utils';
@@ -17,14 +18,17 @@ import AdminDashboard from './components/AdminDashboard';
 import MusyrifDashboard from './components/MusyrifDashboard';
 import logoMinSukoharjo from './assets/logo_min_sukoharjo.jpg';
 
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean; error: Error | null }
-> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<any, any> {
+  state = { hasError: false, error: null as Error | null };
 
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
@@ -48,7 +52,7 @@ class ErrorBoundary extends React.Component<
             </p>
             <button
               onClick={() => {
-                this.setState({ hasError: false, error: null });
+                (this as any).setState({ hasError: false, error: null });
                 window.location.reload();
               }}
               className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm transition-all shadow-lg"
@@ -59,7 +63,7 @@ class ErrorBoundary extends React.Component<
         </div>
       );
     }
-    return this.props.children;
+    return (this as any).props.children;
   }
 }
 
@@ -257,6 +261,43 @@ export default function App() {
 
   useEffect(() => {
     fetchRoleData(appState, currentUser?.id);
+  }, [appState, currentUser?.id]);
+
+  // Automatic Real-time Sync & Background Polling for all devices
+  useEffect(() => {
+    if (appState === 'home' || appState === 'loading') return;
+
+    // 1. Subscribe to Supabase Realtime postgres_changes
+    const tables = ['classes', 'students', 'musyrif', 'halaqoh', 'catatan_harian', 'absen_musyrif', 'absen_siswa', 'settings'];
+    const unsubs = tables.map(tableName => 
+      subscribeToTable(tableName, () => {
+        fetchRoleData(appState, currentUser?.id);
+      })
+    );
+
+    // 2. Gentle periodic sync fallback (every 20 seconds) as a safety net if WebSocket disconnects
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchRoleData(appState, currentUser?.id);
+      }
+    }, 20000);
+
+    // 3. Auto-sync immediately when tab/window gains focus or becomes visible
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchRoleData(appState, currentUser?.id);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      unsubs.forEach(unsub => unsub());
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
   }, [appState, currentUser?.id]);
 
   const refreshAllData = async () => {

@@ -340,7 +340,7 @@ export default function MusyrifDashboard({
           noInduk: rec.noInduk,
           kelasId: rec.kelasId,
           kelasNama: rec.kelasNama,
-          status: 'Hadir',
+          status: 'Hadir' as const,
           musyrifId: userId
         };
         await addAbsenSiswa(payload);
