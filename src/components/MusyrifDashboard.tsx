@@ -20,7 +20,6 @@ interface MusyrifDashboardProps {
   halaqohs: Halaqoh[];
   journals: CatatanHarian[];
   studentAttendances?: AbsenSiswa[];
-  onUpdateStudentAttendances?: React.Dispatch<React.SetStateAction<AbsenSiswa[]>>;
   refreshData: () => Promise<void>;
 }
 
@@ -33,7 +32,6 @@ export default function MusyrifDashboard({
   halaqohs,
   journals,
   studentAttendances = [],
-  onUpdateStudentAttendances,
   refreshData
 }: MusyrifDashboardProps) {
   const [activeTab, setActiveTab] = useState<'absen_saya' | 'absen_siswa' | 'input_siswa' | 'rekap_hari' | 'rekap_bulan'>('absen_saya');
@@ -41,20 +39,6 @@ export default function MusyrifDashboard({
   const [feedback, setFeedback] = useState({ text: '', type: 'success' });
   const [showAutoAbsenModal, setShowAutoAbsenModal] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
-
-  // Local state for instant optimistic UI updates on student attendance
-  const [localStudentAttendances, setLocalStudentAttendances] = useState<AbsenSiswa[]>(studentAttendances);
-
-  useEffect(() => {
-    setLocalStudentAttendances(studentAttendances);
-  }, [studentAttendances]);
-
-  const updateStudentAttendancesState = (updater: AbsenSiswa[] | ((prev: AbsenSiswa[]) => AbsenSiswa[])) => {
-    setLocalStudentAttendances(updater);
-    if (onUpdateStudentAttendances) {
-      onUpdateStudentAttendances(updater);
-    }
-  };
 
 
   // Filter halaqohs to only those managed by the current Musyrif (supports multiple Musyrifs)
@@ -197,46 +181,29 @@ export default function MusyrifDashboard({
 
   const handleUpdateStudentAttendance = async (siswa: Siswa, status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa') => {
     setIsUpdatingAttendance(siswa.id);
-    
-    // Find class name and active halaqoh
-    const sKelas = classes.find(c => c.id === siswa.kelasId);
-    const sKelasNama = sKelas?.nama || 'N/A';
-
-    // Check if attendance already exists for this student on this date in local state
-    const existing = localStudentAttendances.find(
-      a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal
-    );
-
-    const tempId = existing ? existing.id : 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
-
-    // Optimistically update local state immediately so button turns green/selected instantly!
-    let updatedList: AbsenSiswa[];
-    if (existing) {
-      updatedList = localStudentAttendances.map(a => 
-        a.id === existing.id ? { ...a, status } : a
-      );
-    } else {
-      const newRec: AbsenSiswa = {
-        id: tempId,
-        tanggal: absenSiswaTanggal,
-        siswaId: siswa.id,
-        siswaNama: siswa.nama,
-        noInduk: siswa.noInduk || '-',
-        kelasId: siswa.kelasId || 'N/A',
-        kelasNama: sKelasNama,
-        status,
-        musyrifId: userId
-      };
-      updatedList = [newRec, ...localStudentAttendances];
-    }
-
-    updateStudentAttendancesState(updatedList);
-
     try {
+      // Find class name and active halaqoh
+      const sKelas = classes.find(c => c.id === siswa.kelasId);
+      const sKelasNama = sKelas?.nama || 'N/A';
+
+      // Check if attendance already exists for this student on this date
+      const existing = studentAttendances.find(
+        a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal
+      );
+
       if (existing) {
-        const docRef = doc(db, 'absen_siswa', existing.id);
-        await updateDoc(docRef, { status });
+        if (existing.status === status) {
+          // If already set to this status, keep it or do nothing.
+          // But writing ensures Firestore is up to date. Let's update it anyway to be safe!
+          const docRef = doc(db, 'absen_siswa', existing.id);
+          await updateDoc(docRef, { status });
+        } else {
+          // Update existing
+          const docRef = doc(db, 'absen_siswa', existing.id);
+          await updateDoc(docRef, { status });
+        }
       } else {
+        // Create new
         const payload = {
           tanggal: absenSiswaTanggal,
           siswaId: siswa.id,
@@ -247,14 +214,11 @@ export default function MusyrifDashboard({
           status,
           musyrifId: userId
         };
-        const docRef = await addDoc(collection(db, 'absen_siswa'), payload);
-        // Replace temp ID with Firestore document ID
-        updateStudentAttendancesState(prev => prev.map(a => a.id === tempId ? { ...a, id: docRef.id } : a));
+        await addDoc(collection(db, 'absen_siswa'), payload);
       }
       showFeedback(`Kehadiran ${siswa.nama} berhasil diperbarui ke '${status}'`);
     } catch (err: any) {
       console.error('Failed to update student attendance:', err);
-      updateStudentAttendancesState(studentAttendances || []);
       showFeedback('Gagal menyimpan kehadiran: ' + err.message, 'danger');
     } finally {
       setIsUpdatingAttendance(null);
@@ -285,63 +249,26 @@ export default function MusyrifDashboard({
     
     setIsSaving(true);
     let successCount = 0;
-
-    let updatedList = [...localStudentAttendances];
-    const writeTasks: Array<{ type: 'update' | 'add'; docId?: string; payload: any; tempId?: string }> = [];
-
-    for (const siswa of targetStudents) {
-      const existing = updatedList.find(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal);
-      const sKelas = classes.find(c => c.id === siswa.kelasId);
-      const sKelasNama = sKelas?.nama || 'N/A';
-
-      if (existing) {
-        if (existing.status !== 'Hadir') {
-          updatedList = updatedList.map(a => a.id === existing.id ? { ...a, status: 'Hadir' } : a);
-          writeTasks.push({ type: 'update', docId: existing.id, payload: { status: 'Hadir' } });
-          successCount++;
-        }
-      } else {
-        const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
-        const newRec: AbsenSiswa = {
-          id: tempId,
-          tanggal: absenSiswaTanggal,
-          siswaId: siswa.id,
-          siswaNama: siswa.nama,
-          noInduk: siswa.noInduk || '-',
-          kelasId: siswa.kelasId || 'N/A',
-          kelasNama: sKelasNama,
-          status: 'Hadir',
-          musyrifId: userId
-        };
-        updatedList.unshift(newRec);
-        writeTasks.push({ 
-          type: 'add', 
-          tempId,
-          payload: {
+    try {
+      for (const siswa of targetStudents) {
+        const existing = studentAttendances.find(
+          a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal
+        );
+        if (!existing) {
+          const sKelas = classes.find(c => c.id === siswa.kelasId);
+          const sKelasNama = sKelas?.nama || 'N/A';
+          const payload = {
             tanggal: absenSiswaTanggal,
             siswaId: siswa.id,
             siswaNama: siswa.nama,
             noInduk: siswa.noInduk || '-',
             kelasId: siswa.kelasId || 'N/A',
             kelasNama: sKelasNama,
-            status: 'Hadir',
+            status: 'Hadir' as const,
             musyrifId: userId
-          }
-        });
-        successCount++;
-      }
-    }
-
-    // Instantly reflect in UI!
-    updateStudentAttendancesState(updatedList);
-
-    try {
-      for (const task of writeTasks) {
-        if (task.type === 'update' && task.docId) {
-          await updateDoc(doc(db, 'absen_siswa', task.docId), task.payload);
-        } else if (task.type === 'add' && task.tempId) {
-          const docRef = await addDoc(collection(db, 'absen_siswa'), task.payload);
-          updateStudentAttendancesState(prev => prev.map(a => a.id === task.tempId ? { ...a, id: docRef.id } : a));
+          };
+          await addDoc(collection(db, 'absen_siswa'), payload);
+          successCount++;
         }
       }
       if (successCount > 0) {
@@ -351,7 +278,6 @@ export default function MusyrifDashboard({
       }
     } catch (err: any) {
       console.error('Failed to mark all present:', err);
-      updateStudentAttendancesState(studentAttendances || []);
       showFeedback('Gagal mengabsen semua: ' + err.message, 'danger');
     } finally {
       setIsSaving(false);
@@ -1491,7 +1417,7 @@ export default function MusyrifDashboard({
                     {/* Statistics Cards */}
                     {(() => {
                       const list = myStudents;
-                      const todaysAbsen = localStudentAttendances.filter(a => a.tanggal === absenSiswaTanggal);
+                      const todaysAbsen = studentAttendances.filter(a => a.tanggal === absenSiswaTanggal);
                       
                       let countHadir = 0;
                       let countSakit = 0;
@@ -1597,7 +1523,7 @@ export default function MusyrifDashboard({
                               {paginatedList.map((siswa, idx) => {
                                 const prevSiswa = idx > 0 ? paginatedList[idx - 1] : null;
                                 const showClassHeader = !prevSiswa || prevSiswa.kelasNama !== siswa.kelasNama;
-                                const attRecord = localStudentAttendances.filter(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal)[0];
+                                const attRecord = studentAttendances.filter(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal)[0];
                                 const currentStatus = attRecord?.status || null;
                                 const isUpdating = isUpdatingAttendance === siswa.id;
 
