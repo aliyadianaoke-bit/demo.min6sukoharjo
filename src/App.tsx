@@ -8,8 +8,7 @@ import {
   getStudents, 
   getJournals, 
   getAbsenMusyrif, 
-  getAbsenSiswa,
-  subscribeToTable
+  getAbsenSiswa 
 } from './lib/supabaseService';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from './types';
 import { isMusyrifAutoOff14 } from './utils';
@@ -261,43 +260,6 @@ export default function App() {
 
   useEffect(() => {
     fetchRoleData(appState, currentUser?.id);
-  }, [appState, currentUser?.id]);
-
-  // Automatic Real-time Sync & Background Polling for all devices
-  useEffect(() => {
-    if (appState === 'home' || appState === 'loading') return;
-
-    // 1. Subscribe to Supabase Realtime postgres_changes
-    const tables = ['classes', 'students', 'musyrif', 'halaqoh', 'catatan_harian', 'absen_musyrif', 'absen_siswa', 'settings'];
-    const unsubs = tables.map(tableName => 
-      subscribeToTable(tableName, () => {
-        fetchRoleData(appState, currentUser?.id);
-      })
-    );
-
-    // 2. Gentle periodic sync fallback (every 20 seconds) as a safety net if WebSocket disconnects
-    const pollInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchRoleData(appState, currentUser?.id);
-      }
-    }, 20000);
-
-    // 3. Auto-sync immediately when tab/window gains focus or becomes visible
-    const handleFocus = () => {
-      if (document.visibilityState === 'visible') {
-        fetchRoleData(appState, currentUser?.id);
-      }
-    };
-
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
-
-    return () => {
-      unsubs.forEach(unsub => unsub());
-      clearInterval(pollInterval);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
-    };
   }, [appState, currentUser?.id]);
 
   const refreshAllData = async () => {

@@ -559,22 +559,15 @@ export async function deleteAbsenSiswa(id: string): Promise<void> {
 export function subscribeToTable(tableName: string, callback: (payload: any) => void) {
   if (isSupabaseConfigured()) {
     try {
-      const channelId = `realtime:${tableName}:${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       const channel = supabase
-        .channel(channelId)
+        .channel(`public:${tableName}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: tableName },
           (payload) => callback(payload)
         )
         .subscribe();
-      return () => {
-        try {
-          supabase.removeChannel(channel);
-        } catch (e) {
-          // ignore cleanup errors
-        }
-      };
+      return () => { supabase.removeChannel(channel); };
     } catch (e) {
       console.warn("Supabase realtime subscribe error:", e);
     }
