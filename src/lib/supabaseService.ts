@@ -182,18 +182,20 @@ export async function getClasses(): Promise<Kelas[]> {
 export async function addClass(input: string | { nama: string }): Promise<Kelas> {
   const namaStr = typeof input === 'string' ? input : (input && (input as any).nama ? (input as any).nama : String(input || ''));
   const newClass: Kelas = { id: generateId('kls'), nama: namaStr };
-  
-  memoryClasses.push(newClass);
 
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('classes').insert(newClass);
-      if (error) console.error("Supabase addClass error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase addClass error:", error);
+        alert(`Gagal menyimpan Kelas ke Supabase: ${error.message || 'Row Level Security atau tabel belum dibuat'}`);
+      }
+    } catch (e: any) {
       console.warn("Failed adding class to Supabase:", e);
     }
   }
 
+  memoryClasses.push(newClass);
   return newClass;
 }
 
@@ -204,8 +206,11 @@ export async function updateClass(id: string, input: string | { nama: string }):
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('classes').update({ nama: namaStr }).eq('id', id);
-      if (error) console.error("Supabase updateClass error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase updateClass error:", error);
+        alert(`Gagal update Kelas di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed updating class in Supabase:", e);
     }
   }
@@ -217,8 +222,11 @@ export async function deleteClass(id: string): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('classes').delete().eq('id', id);
-      if (error) console.error("Supabase deleteClass error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase deleteClass error:", error);
+        alert(`Gagal hapus Kelas di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed deleting class in Supabase:", e);
     }
   }
@@ -255,16 +263,19 @@ export async function getHalaqohs(): Promise<Halaqoh[]> {
 
 export async function addHalaqoh(item: Omit<Halaqoh, 'id'>): Promise<Halaqoh> {
   const newItem: Halaqoh = { id: generateId('hq'), ...item };
-  memoryHalaqohs.push(newItem);
 
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('halaqoh').insert(newItem);
-      if (error) console.error("Supabase addHalaqoh error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase addHalaqoh error:", error);
+        alert(`Gagal menyimpan Halaqoh ke Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed adding halaqoh to Supabase:", e);
     }
   }
+  memoryHalaqohs.push(newItem);
   return newItem;
 }
 
@@ -274,8 +285,11 @@ export async function updateHalaqoh(id: string, item: Partial<Halaqoh>): Promise
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('halaqoh').update(item).eq('id', id);
-      if (error) console.error("Supabase updateHalaqoh error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase updateHalaqoh error:", error);
+        alert(`Gagal update Halaqoh di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed updating halaqoh in Supabase:", e);
     }
   }
@@ -287,8 +301,11 @@ export async function deleteHalaqoh(id: string): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('halaqoh').delete().eq('id', id);
-      if (error) console.error("Supabase deleteHalaqoh error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase deleteHalaqoh error:", error);
+        alert(`Gagal hapus Halaqoh di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed deleting halaqoh in Supabase:", e);
     }
   }
@@ -325,16 +342,19 @@ export async function getMusyrifs(): Promise<Musyrif[]> {
 
 export async function addMusyrif(item: Omit<Musyrif, 'id'>): Promise<Musyrif> {
   const newItem: Musyrif = { id: generateId('usr'), ...item };
-  memoryMusyrifs.push(newItem);
 
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('musyrif').insert(newItem);
-      if (error) console.error("Supabase addMusyrif error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase addMusyrif error:", error);
+        alert(`Gagal menyimpan Musyrif ke Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed adding musyrif to Supabase:", e);
     }
   }
+  memoryMusyrifs.push(newItem);
   return newItem;
 }
 
@@ -344,8 +364,11 @@ export async function updateMusyrif(id: string, item: Partial<Musyrif>): Promise
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('musyrif').update(item).eq('id', id);
-      if (error) console.error("Supabase updateMusyrif error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase updateMusyrif error:", error);
+        alert(`Gagal update Musyrif di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed updating musyrif in Supabase:", e);
     }
   }
@@ -357,8 +380,11 @@ export async function deleteMusyrif(id: string): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('musyrif').delete().eq('id', id);
-      if (error) console.error("Supabase deleteMusyrif error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase deleteMusyrif error:", error);
+        alert(`Gagal hapus Musyrif di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed deleting musyrif in Supabase:", e);
     }
   }
@@ -395,16 +421,19 @@ export async function getStudents(): Promise<Siswa[]> {
 
 export async function addStudent(item: Omit<Siswa, 'id'>): Promise<Siswa> {
   const newItem: Siswa = { id: generateId('sis'), ...item };
-  memoryStudents.push(newItem);
 
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('students').insert(newItem);
-      if (error) console.error("Supabase addStudent error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase addStudent error:", error);
+        alert(`Gagal menyimpan Santri ke Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed adding student to Supabase:", e);
     }
   }
+  memoryStudents.push(newItem);
   return newItem;
 }
 
@@ -414,8 +443,11 @@ export async function updateStudent(id: string, item: Partial<Siswa>): Promise<v
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('students').update(item).eq('id', id);
-      if (error) console.error("Supabase updateStudent error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase updateStudent error:", error);
+        alert(`Gagal update Santri di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed updating student in Supabase:", e);
     }
   }
@@ -427,8 +459,11 @@ export async function deleteStudent(id: string): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('students').delete().eq('id', id);
-      if (error) console.error("Supabase deleteStudent error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase deleteStudent error:", error);
+        alert(`Gagal hapus Santri di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed deleting student in Supabase:", e);
     }
   }
@@ -469,16 +504,19 @@ export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
 
 export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<CatatanHarian> {
   const newItem: CatatanHarian = { id: generateId('cat'), ...item };
-  memoryJournals.unshift(newItem);
 
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('catatan_harian').insert(newItem);
-      if (error) console.error("Supabase addJournal error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase addJournal error:", error);
+        alert(`Gagal menyimpan Catatan Harian ke Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed adding journal to Supabase:", e);
     }
   }
+  memoryJournals.unshift(newItem);
   return newItem;
 }
 
@@ -488,8 +526,11 @@ export async function updateJournal(id: string, item: Partial<CatatanHarian>): P
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('catatan_harian').update(item).eq('id', id);
-      if (error) console.error("Supabase updateJournal error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase updateJournal error:", error);
+        alert(`Gagal update Catatan Harian di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed updating journal in Supabase:", e);
     }
   }
@@ -501,8 +542,11 @@ export async function deleteJournal(id: string): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('catatan_harian').delete().eq('id', id);
-      if (error) console.error("Supabase deleteJournal error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase deleteJournal error:", error);
+        alert(`Gagal hapus Catatan Harian di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed deleting journal in Supabase:", e);
     }
   }
@@ -534,16 +578,19 @@ export async function getAbsenMusyrif(musyrifId?: string, limitNum = 50): Promis
 
 export async function addAbsenMusyrif(item: Omit<AbsenMusyrif, 'id'>): Promise<AbsenMusyrif> {
   const newItem: AbsenMusyrif = { id: generateId('abm'), ...item };
-  memoryAbsenMusyrif.unshift(newItem);
 
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('absen_musyrif').insert(newItem);
-      if (error) console.error("Supabase addAbsenMusyrif error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase addAbsenMusyrif error:", error);
+        alert(`Gagal menyimpan Absen Musyrif ke Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed adding absen musyrif to Supabase:", e);
     }
   }
+  memoryAbsenMusyrif.unshift(newItem);
   return newItem;
 }
 
@@ -553,8 +600,11 @@ export async function updateAbsenMusyrif(id: string, item: Partial<AbsenMusyrif>
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('absen_musyrif').update(item).eq('id', id);
-      if (error) console.error("Supabase updateAbsenMusyrif error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase updateAbsenMusyrif error:", error);
+        alert(`Gagal update Absen Musyrif di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed updating absen musyrif in Supabase:", e);
     }
   }
@@ -566,8 +616,11 @@ export async function deleteAbsenMusyrif(id: string): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('absen_musyrif').delete().eq('id', id);
-      if (error) console.error("Supabase deleteAbsenMusyrif error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase deleteAbsenMusyrif error:", error);
+        alert(`Gagal hapus Absen Musyrif di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed deleting absen musyrif in Supabase:", e);
     }
   }
@@ -599,16 +652,19 @@ export async function getAbsenSiswa(musyrifId?: string, limitNum = 100): Promise
 
 export async function addAbsenSiswa(item: Omit<AbsenSiswa, 'id'>): Promise<AbsenSiswa> {
   const newItem: SiswaAbsenItem = { id: generateId('abs'), ...item } as any;
-  memoryAbsenSiswa.unshift(newItem as any);
 
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('absen_siswa').insert(newItem);
-      if (error) console.error("Supabase addAbsenSiswa error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase addAbsenSiswa error:", error);
+        alert(`Gagal menyimpan Absen Siswa ke Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed adding absen siswa to Supabase:", e);
     }
   }
+  memoryAbsenSiswa.unshift(newItem as any);
   return newItem as any;
 }
 
@@ -618,8 +674,11 @@ export async function updateAbsenSiswa(id: string, item: Partial<AbsenSiswa>): P
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('absen_siswa').update(item).eq('id', id);
-      if (error) console.error("Supabase updateAbsenSiswa error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase updateAbsenSiswa error:", error);
+        alert(`Gagal update Absen Siswa di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed updating absen siswa in Supabase:", e);
     }
   }
@@ -631,8 +690,11 @@ export async function deleteAbsenSiswa(id: string): Promise<void> {
   if (isSupabaseConfigured()) {
     try {
       const { error } = await supabase.from('absen_siswa').delete().eq('id', id);
-      if (error) console.error("Supabase deleteAbsenSiswa error:", error.message || error);
-    } catch (e) {
+      if (error) {
+        console.error("Supabase deleteAbsenSiswa error:", error);
+        alert(`Gagal hapus Absen Siswa di Supabase: ${error.message}`);
+      }
+    } catch (e: any) {
       console.warn("Failed deleting absen siswa in Supabase:", e);
     }
   }
