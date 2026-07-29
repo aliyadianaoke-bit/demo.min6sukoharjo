@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { 
    Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
    ChevronRight, ChevronLeft, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
-   Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet, ArrowUpDown
+   Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet, ArrowUpDown,
+   Copy, ExternalLink, Eye, EyeOff, User
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { 
@@ -54,6 +55,22 @@ export default function AdminDashboard({
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan' | 'absen'>('kelas');
   const [isSaving, setIsSaving] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const supabaseSqlScript = `-- SCRIPT SOLUSI ERROR RLS SUPABASE
+-- Jalankan kode SQL ini di Supabase Dashboard -> SQL Editor
+-- untuk mengizinkan aplikasi menambah/mengubah/menghapus data.
+
+ALTER TABLE IF EXISTS classes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS halaqoh DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS musyrif DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS students DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS catatan_harian DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS absen_musyrif DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS absen_siswa DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS settings DISABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;`;
   const [feedbackMsg, setFeedbackMsg] = useState({ text: '', type: 'success' });
 
   // Modal States
@@ -91,6 +108,12 @@ export default function AdminDashboard({
   const [musyrifPassword, setMusyrifPassword] = useState('');
   const [musyrifStatusAkses, setMusyrifStatusAkses] = useState<'aktif' | 'nonaktif'>('aktif');
 
+  // Password / User Visibility Toggle States
+  const [visibleMusyrifUsernames, setVisibleMusyrifUsernames] = useState<Record<string, boolean>>({});
+  const [visibleMusyrifPasswords, setVisibleMusyrifPasswords] = useState<Record<string, boolean>>({});
+  const [showMusyrifFormUsername, setShowMusyrifFormUsername] = useState(true);
+  const [showMusyrifFormPassword, setShowMusyrifFormPassword] = useState(false);
+
   // 5. Laporan Form
   const [selectedLaporanHalaqohId, setSelectedLaporanHalaqohId] = useState(halaqohs[0]?.id || '');
   const [selectedLaporanMusyrifId, setSelectedLaporanMusyrifId] = useState('');
@@ -100,6 +123,9 @@ export default function AdminDashboard({
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmNewPass, setConfirmNewPass] = useState('');
+  const [showAdminCurrentPass, setShowAdminCurrentPass] = useState(false);
+  const [showAdminNewPass, setShowAdminNewPass] = useState(false);
+  const [showAdminConfirmPass, setShowAdminConfirmPass] = useState(false);
 
   // 7. Absen States
   const [attendances, setAttendances] = useState<AbsenMusyrif[]>([]);
@@ -2066,9 +2092,33 @@ export default function AdminDashboard({
                             <td className="py-3 px-4 font-mono font-bold text-slate-400">{i + 1}</td>
                             <td className="py-3 px-4 font-mono font-semibold text-slate-800">{m.nim}</td>
                             <td className="py-3 px-4 font-bold text-slate-900">{m.nama}</td>
-                            <td className="py-3 px-4 font-mono">{m.username}</td>
-                            <td className="py-3 px-4 font-mono text-slate-400 select-all font-bold group hover:text-slate-700 transition" title="Klik untuk menyalin">
-                              ⚡ {m.password || '●●●●●●'}
+                            <td className="py-3 px-4 font-mono font-medium text-slate-800">
+                              <div className="flex items-center gap-1.5">
+                                <span>{visibleMusyrifUsernames[m.id] === false ? '••••••••' : m.username}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setVisibleMusyrifUsernames(prev => ({ ...prev, [m.id]: prev[m.id] === false ? true : false }))}
+                                  className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition cursor-pointer"
+                                  title={visibleMusyrifUsernames[m.id] === false ? "Tampilkan Username" : "Sembunyikan Username"}
+                                >
+                                  {visibleMusyrifUsernames[m.id] === false ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 font-mono text-slate-700">
+                              <div className="flex items-center gap-1.5">
+                                <span className={visibleMusyrifPasswords[m.id] ? "font-bold text-slate-900 select-all" : "text-slate-400"}>
+                                  {visibleMusyrifPasswords[m.id] ? (m.password || '●●●●●●') : '••••••••'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setVisibleMusyrifPasswords(prev => ({ ...prev, [m.id]: !prev[m.id] }))}
+                                  className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition cursor-pointer"
+                                  title={visibleMusyrifPasswords[m.id] ? "Sembunyikan Password" : "Tampilkan Password"}
+                                >
+                                  {visibleMusyrifPasswords[m.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
                             </td>
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -2904,38 +2954,68 @@ export default function AdminDashboard({
                   <form onSubmit={handleChangePassword} className="space-y-4">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-600 block">Password Saat Ini</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Masukkan password admin lama"
-                        value={currentPass}
-                        onChange={(e) => setCurrentPass(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showAdminCurrentPass ? 'text' : 'password'}
+                          required
+                          placeholder="Masukkan password admin lama"
+                          value={currentPass}
+                          onChange={(e) => setCurrentPass(e.target.value)}
+                          className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminCurrentPass(!showAdminCurrentPass)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                          title={showAdminCurrentPass ? "Sembunyikan password" : "Tampilkan password"}
+                        >
+                          {showAdminCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-600 block">Password Baru</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Masukkan password admin baru"
-                        value={newPass}
-                        onChange={(e) => setNewPass(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showAdminNewPass ? 'text' : 'password'}
+                          required
+                          placeholder="Masukkan password admin baru"
+                          value={newPass}
+                          onChange={(e) => setNewPass(e.target.value)}
+                          className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminNewPass(!showAdminNewPass)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                          title={showAdminNewPass ? "Sembunyikan password" : "Tampilkan password"}
+                        >
+                          {showAdminNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-slate-600 block">Ulangi Password Baru</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Konfirmasi password baru"
-                        value={confirmNewPass}
-                        onChange={(e) => setConfirmNewPass(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showAdminConfirmPass ? 'text' : 'password'}
+                          required
+                          placeholder="Konfirmasi password baru"
+                          value={confirmNewPass}
+                          onChange={(e) => setConfirmNewPass(e.target.value)}
+                          className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminConfirmPass(!showAdminConfirmPass)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                          title={showAdminConfirmPass ? "Sembunyikan password" : "Tampilkan password"}
+                        >
+                          {showAdminConfirmPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
 
                     <button
@@ -2948,6 +3028,57 @@ export default function AdminDashboard({
                     </button>
                   </form>
                 </div>
+              </div>
+
+              {/* Supabase RLS Fix Guidance Card */}
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 border border-amber-200 p-6 rounded-2xl space-y-4 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-5 h-5 text-amber-700" />
+                    <h4 className="text-sm font-extrabold text-amber-900">Solusi Simpan Data Gagal / Row-Level Security (RLS) Supabase</h4>
+                  </div>
+                  <a
+                    href="https://supabase.com/dashboard/project/ipyougnmzbcgfxgzliso/sql"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 hover:text-amber-900 underline"
+                  >
+                    <span>Buka SQL Editor Supabase</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+
+                <p className="text-xs text-amber-800/90 leading-relaxed">
+                  Jika muncul notifikasi <strong className="font-extrabold">"new row violates row-level security policy for table"</strong>, hal ini terjadi karena secara default Supabase memblokir operasi simpan/ubah/hapus dari koneksi publik (anon key).
+                </p>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold text-amber-900 uppercase tracking-wider">Langkah Perbaikan (1-Klik SQL):</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(supabaseSqlScript);
+                        setCopiedSql(true);
+                        setTimeout(() => setCopiedSql(false), 3000);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                    >
+                      {copiedSql ? <CheckCircle className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedSql ? 'SQL Tersalin!' : 'Salin Kode SQL'}</span>
+                    </button>
+                  </div>
+
+                  <pre className="p-3 bg-slate-900 text-amber-300 font-mono text-[11px] rounded-xl overflow-x-auto border border-slate-800 select-all leading-relaxed">
+                    {supabaseSqlScript}
+                  </pre>
+                </div>
+
+                <ol className="text-xs text-amber-800 list-decimal pl-4 space-y-1">
+                  <li>Klik tombol <strong>"Salin Kode SQL"</strong> di atas.</li>
+                  <li>Buka Dashboard Supabase Anda ➔ masuk ke menu <strong>SQL Editor</strong> (atau New Query).</li>
+                  <li>Tempel (paste) kode SQL tersebut, lalu klik tombol <strong>RUN</strong> di Supabase.</li>
+                  <li>Cobalah tambah data kelas atau santri kembali di website ini.</li>
+                </ol>
               </div>
             </div>
           )}
@@ -3441,27 +3572,47 @@ export default function AdminDashboard({
                   <div className="grid grid-cols-2 gap-3 pb-2 border-t border-slate-100 pt-3">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-600 block">Username Login</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Ketik username"
-                        value={musyrifUsername}
-                        onChange={(e) => setMusyrifUsername(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white focus:outline-none transition"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showMusyrifFormUsername ? 'text' : 'password'}
+                          required
+                          placeholder="Ketik username"
+                          value={musyrifUsername}
+                          onChange={(e) => setMusyrifUsername(e.target.value)}
+                          className="w-full pl-4 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white focus:outline-none transition"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowMusyrifFormUsername(!showMusyrifFormUsername)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                          title={showMusyrifFormUsername ? "Sembunyikan username" : "Tampilkan username"}
+                        >
+                          {showMusyrifFormUsername ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-600 block">
                         Password Login {modalType === 'edit' && '(Opsional)'}
                       </label>
-                      <input
-                        type="text"
-                        required={modalType === 'add'}
-                        placeholder={modalType === 'add' ? 'Ketik password login' : 'Ketik baru jika diganti'}
-                        value={musyrifPassword}
-                        onChange={(e) => setMusyrifPassword(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white focus:outline-none transition"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showMusyrifFormPassword ? 'text' : 'password'}
+                          required={modalType === 'add'}
+                          placeholder={modalType === 'add' ? 'Ketik password login' : 'Ketik baru jika diganti'}
+                          value={musyrifPassword}
+                          onChange={(e) => setMusyrifPassword(e.target.value)}
+                          className="w-full pl-4 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 focus:bg-white focus:outline-none transition"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowMusyrifFormPassword(!showMusyrifFormPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                          title={showMusyrifFormPassword ? "Sembunyikan password" : "Tampilkan password"}
+                        >
+                          {showMusyrifFormPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
 

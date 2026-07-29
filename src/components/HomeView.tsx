@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, LogIn, Lock, User, Sparkles, Heart, Target, Award, ShieldCheck, HelpCircle, ShieldAlert, Clock } from 'lucide-react';
+import { BookOpen, LogIn, Lock, User, Sparkles, Heart, Target, Award, ShieldCheck, HelpCircle, ShieldAlert, Clock, Eye, EyeOff } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { AbsenMusyrif } from '../types';
 import { isMusyrifAutoOff14, getWibInfo } from '../utils';
@@ -21,6 +21,11 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList, musyr
   const [password, setPassword] = useState('');
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Password / Username visibility toggles
+  const [showMusyrifUsername, setShowMusyrifUsername] = useState(true);
+  const [showMusyrifPassword, setShowMusyrifPassword] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -338,12 +343,7 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList, musyr
                   </div>
                 )}
 
-                {selectedRole === 'musyrif' && musyrifLoginEnabled && (
-                  <div className="p-2.5 bg-slate-100/80 border border-slate-200 rounded-xl text-slate-600 text-[11px] font-medium flex items-start gap-2">
-                    <Clock className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                    <span><strong>Batas Absensi 14.00 WIB</strong>: Musyrif yang belum absen hingga 14.00 WIB akan otomatis OFF dan terbuka kembali pukul 18.00 WIB.</span>
-                  </div>
-                )}
+
 
                 {errorMsg && (
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-xs font-semibold">
@@ -355,38 +355,68 @@ export default function HomeView({ onLoginSuccess, adminPass, musyrifList, musyr
                   <>
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-600 block">Username Musyrif</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Masukkan username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showMusyrifUsername ? 'text' : 'password'}
+                          required
+                          placeholder="Masukkan username"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowMusyrifUsername(!showMusyrifUsername)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                          title={showMusyrifUsername ? "Sembunyikan username" : "Tampilkan username"}
+                        >
+                          {showMusyrifUsername ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-600 block">Password</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Masukkan password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
-                      />
+                      <div className="relative">
+                        <input
+                          type={showMusyrifPassword ? 'text' : 'password'}
+                          required
+                          placeholder="Masukkan password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowMusyrifPassword(!showMusyrifPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                          title={showMusyrifPassword ? "Sembunyikan password" : "Tampilkan password"}
+                        >
+                          {showMusyrifPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
                   </>
                 ) : (
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-slate-600 block">Password Administrator</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Masukkan password admin"
-                      value={adminPasswordInput}
-                      onChange={(e) => setAdminPasswordInput(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showAdminPassword ? 'text' : 'password'}
+                        required
+                        placeholder="Masukkan password admin"
+                        value={adminPasswordInput}
+                        onChange={(e) => setAdminPasswordInput(e.target.value)}
+                        className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAdminPassword(!showAdminPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg transition cursor-pointer"
+                        title={showAdminPassword ? "Sembunyikan password" : "Tampilkan password"}
+                      >
+                        {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                 )}
 
