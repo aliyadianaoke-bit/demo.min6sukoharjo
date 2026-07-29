@@ -55,26 +55,6 @@ export default function AdminDashboard({
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan' | 'absen'>('kelas');
   const [isSaving, setIsSaving] = useState(false);
-  const [copiedSql, setCopiedSql] = useState(false);
-
-  const supabaseSqlScript = `-- SCRIPT SOLUSI ERROR RLS & KOLOM SUPABASE
--- Jalankan kode SQL ini di Supabase Dashboard -> SQL Editor
--- untuk mengizinkan aplikasi menambah/mengubah/menghapus data.
-
-ALTER TABLE IF EXISTS classes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS halaqoh DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS musyrif DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS students DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS catatan_harian DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS absen_musyrif DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS absen_siswa DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS settings DISABLE ROW LEVEL SECURITY;
-
--- Tambahkan kolom opsional ke tabel students jika belum ada
-ALTER TABLE IF EXISTS students ADD COLUMN IF NOT EXISTS "isKelasDasar" boolean DEFAULT false;
-ALTER TABLE IF EXISTS students ADD COLUMN IF NOT EXISTS "isKelasTahfidz" boolean DEFAULT false;
-
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;`;
   const [feedbackMsg, setFeedbackMsg] = useState({ text: '', type: 'success' });
 
   // Modal States
@@ -1455,10 +1435,43 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, servi
       </nav>
 
       {/* Admin Central Area */}
-      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col md:flex-row gap-6">
+      <div className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 flex flex-col md:flex-row gap-4 sm:gap-6">
         
-        {/* Left Side menu sidebar (Responsive) */}
-        <div className="w-full md:w-64 flex-none space-y-2">
+        {/* Mobile Horizontal Tab Navigation (Visible on mobile/tablet screens < md) */}
+        <div className="md:hidden bg-white p-2 rounded-2xl border border-slate-150 shadow-xs flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {[
+            { id: 'kelas', label: 'Kelas', icon: BookOpen },
+            { id: 'siswa', label: 'Siswa', icon: Users },
+            { id: 'pengajar', label: 'Pengajar', icon: UserCheck },
+            { id: 'halaqoh', label: 'Halaqoh', icon: BookMarked },
+            { id: 'absen', label: 'Absen', icon: Calendar },
+            { id: 'laporan', label: 'Laporan', icon: FileText },
+            { id: 'pengaturan', label: 'Pengaturan', icon: Settings }
+          ].map(tab => {
+            const IconComp = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id as any);
+                  setFeedbackMsg({ text: '', type: 'success' });
+                }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition cursor-pointer shrink-0 ${
+                  isActive
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-slate-100/90 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <IconComp className="w-3.5 h-3.5 shrink-0" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Left Side menu sidebar (Desktop >= md) */}
+        <div className="hidden md:block w-64 flex-none space-y-2">
           <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-sm space-y-1">
             <h4 className="text-xs font-bold text-slate-400 px-3 uppercase tracking-wider mb-2">MENU UTAMA</h4>
             
@@ -1505,7 +1518,7 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, servi
         </div>
 
         {/* Right Side Content Pane */}
-        <div className="flex-1 bg-white border border-slate-150 p-6 rounded-3xl shadow-sm space-y-6">
+        <div className="flex-1 bg-white border border-slate-150 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-sm space-y-4 sm:space-y-6 overflow-hidden">
           
           {feedbackMsg.text && (
             <div className={`p-4 rounded-xl text-xs font-semibold border ${
@@ -3032,57 +3045,6 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, servi
                     </button>
                   </form>
                 </div>
-              </div>
-
-              {/* Supabase RLS Fix Guidance Card */}
-              <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 border border-amber-200 p-6 rounded-2xl space-y-4 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Database className="w-5 h-5 text-amber-700" />
-                    <h4 className="text-sm font-extrabold text-amber-900">Solusi Simpan Data Gagal / Row-Level Security (RLS) Supabase</h4>
-                  </div>
-                  <a
-                    href="https://supabase.com/dashboard/project/ipyougnmzbcgfxgzliso/sql"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-bold text-amber-800 hover:text-amber-900 underline"
-                  >
-                    <span>Buka SQL Editor Supabase</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-
-                <p className="text-xs text-amber-800/90 leading-relaxed">
-                  Jika muncul notifikasi <strong className="font-extrabold">"new row violates row-level security policy for table"</strong>, hal ini terjadi karena secara default Supabase memblokir operasi simpan/ubah/hapus dari koneksi publik (anon key).
-                </p>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-extrabold text-amber-900 uppercase tracking-wider">Langkah Perbaikan (1-Klik SQL):</span>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(supabaseSqlScript);
-                        setCopiedSql(true);
-                        setTimeout(() => setCopiedSql(false), 3000);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
-                    >
-                      {copiedSql ? <CheckCircle className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedSql ? 'SQL Tersalin!' : 'Salin Kode SQL'}</span>
-                    </button>
-                  </div>
-
-                  <pre className="p-3 bg-slate-900 text-amber-300 font-mono text-[11px] rounded-xl overflow-x-auto border border-slate-800 select-all leading-relaxed">
-                    {supabaseSqlScript}
-                  </pre>
-                </div>
-
-                <ol className="text-xs text-amber-800 list-decimal pl-4 space-y-1">
-                  <li>Klik tombol <strong>"Salin Kode SQL"</strong> di atas.</li>
-                  <li>Buka Dashboard Supabase Anda ➔ masuk ke menu <strong>SQL Editor</strong> (atau New Query).</li>
-                  <li>Tempel (paste) kode SQL tersebut, lalu klik tombol <strong>RUN</strong> di Supabase.</li>
-                  <li>Cobalah tambah data kelas atau santri kembali di website ini.</li>
-                </ol>
               </div>
             </div>
           )}
