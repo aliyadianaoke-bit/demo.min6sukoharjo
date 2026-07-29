@@ -424,7 +424,13 @@ export async function addStudent(item: Omit<Siswa, 'id'>): Promise<Siswa> {
 
   if (isSupabaseConfigured()) {
     try {
-      const { error } = await supabase.from('students').insert(newItem);
+      let { error } = await supabase.from('students').insert(newItem);
+      if (error && (error.message?.includes('isKelasDasar') || error.message?.includes('isKelasTahfidz') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase students table missing isKelasDasar/isKelasTahfidz columns, retrying insert without optional boolean flags...");
+        const { isKelasDasar, isKelasTahfidz, ...cleanItem } = newItem as any;
+        const retryResult = await supabase.from('students').insert(cleanItem);
+        error = retryResult.error;
+      }
       if (error) {
         console.error("Supabase addStudent error:", error);
         alert(`Gagal menyimpan Santri ke Supabase: ${error.message}`);
@@ -442,7 +448,13 @@ export async function updateStudent(id: string, item: Partial<Siswa>): Promise<v
 
   if (isSupabaseConfigured()) {
     try {
-      const { error } = await supabase.from('students').update(item).eq('id', id);
+      let { error } = await supabase.from('students').update(item).eq('id', id);
+      if (error && (error.message?.includes('isKelasDasar') || error.message?.includes('isKelasTahfidz') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase students table missing isKelasDasar/isKelasTahfidz columns, retrying update without optional boolean flags...");
+        const { isKelasDasar, isKelasTahfidz, ...cleanItem } = item as any;
+        const retryResult = await supabase.from('students').update(cleanItem).eq('id', id);
+        error = retryResult.error;
+      }
       if (error) {
         console.error("Supabase updateStudent error:", error);
         alert(`Gagal update Santri di Supabase: ${error.message}`);

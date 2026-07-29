@@ -57,7 +57,7 @@ export default function AdminDashboard({
   const [isSaving, setIsSaving] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
 
-  const supabaseSqlScript = `-- SCRIPT SOLUSI ERROR RLS SUPABASE
+  const supabaseSqlScript = `-- SCRIPT SOLUSI ERROR RLS & KOLOM SUPABASE
 -- Jalankan kode SQL ini di Supabase Dashboard -> SQL Editor
 -- untuk mengizinkan aplikasi menambah/mengubah/menghapus data.
 
@@ -69,6 +69,10 @@ ALTER TABLE IF EXISTS catatan_harian DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS absen_musyrif DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS absen_siswa DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS settings DISABLE ROW LEVEL SECURITY;
+
+-- Tambahkan kolom opsional ke tabel students jika belum ada
+ALTER TABLE IF EXISTS students ADD COLUMN IF NOT EXISTS "isKelasDasar" boolean DEFAULT false;
+ALTER TABLE IF EXISTS students ADD COLUMN IF NOT EXISTS "isKelasTahfidz" boolean DEFAULT false;
 
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, postgres, service_role;`;
   const [feedbackMsg, setFeedbackMsg] = useState({ text: '', type: 'success' });
