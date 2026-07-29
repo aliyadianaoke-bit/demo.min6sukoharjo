@@ -30,6 +30,10 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
   const [successMsg, setSuccessMsg] = useState('');
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
   const getDayName = (dateStr: string): string => {
     const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
     const date = new Date(dateStr);
@@ -44,14 +48,24 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
     });
   };
 
-  // Sync attendance list for current musyrif in real-time (Quota saver: limit to recent 60 logs)
+  // Sync attendance list for current musyrif in real-time using specific where filters and limits
   useEffect(() => {
     setLoading(true);
-    const q = query(
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    let q = query(
       collection(db, 'absen_musyrif'),
       where('musyrifId', '==', userId),
       limit(60)
     );
+
+    if (dateFilter === 'today') {
+      q = query(
+        collection(db, 'absen_musyrif'),
+        where('musyrifId', '==', userId),
+        where('tanggal', '==', todayStr)
+      );
+    }
 
     const unsub = onSnapshot(q, (snap) => {
       const list: AbsenMusyrif[] = [];
@@ -66,14 +80,15 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
       });
       setAttendances(list);
       setLoading(false);
+      setCurrentPage(1); // Reset page on filter change
     }, (err) => {
-      console.error('Error fetching attendance logs:', err);
+      console.warn('Notice fetching attendance logs:', err);
       handleFirestoreError(err, OperationType.GET, 'absen_musyrif');
       setLoading(false);
     });
 
     return () => unsub();
-  }, [userId]);
+  }, [userId, dateFilter]);
 
   const handleCapture = async (base64Image: string) => {
     setIsSaving(true);
@@ -124,8 +139,12 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
       
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (err: any) {
-      console.error('Failed to save attendance:', err);
-      setErrorMsg('Gagal menyimpan absensi: ' + err.message);
+      console.warn('Notice saving attendance:', err);
+      const isQuotaErr = err?.message?.includes('Quota') || err?.code === 'resource-exhausted';
+      setErrorMsg(isQuotaErr 
+        ? 'Batas kuota harian Firestore (50.000 read/write) telah tercapai. Mohon coba beberapa saat lagi.' 
+        : 'Gagal menyimpan absensi: ' + err.message
+      );
     } finally {
       setIsSaving(false);
     }
@@ -211,103 +230,207 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
 
       {/* Grid List of Attendances */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-widest flex items-center gap-1.5">
             <Calendar className="w-4 h-4 text-emerald-600" />
             <span>Riwayat Kehadiran Anda</span>
           </h3>
-          <span className="text-[10px] text-slate-400 font-bold">
-            Total Kehadiran: {attendances.length} Hari
-          </span>
+
+          {/* Date Filter Quick Pills */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-slate-400 font-bold uppercase mr-1">Filter:</span>
+            <button
+              onClick={() => { setDateFilter('all'); setCurrentPage(1); }}
+              className={`px-3 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                dateFilter === 'all'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Semua
+            </button>
+            <button
+              onClick={() => { setDateFilter('today'); setCurrentPage(1); }}
+              className={`px-3 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                dateFilter === 'today'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Hari Ini
+            </button>
+            <button
+              onClick={() => { setDateFilter('week'); setCurrentPage(1); }}
+              className={`px-3 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                dateFilter === 'week'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              7 Hari Terakhir
+            </button>
+            <button
+              onClick={() => { setDateFilter('month'); setCurrentPage(1); }}
+              className={`px-3 py-1 rounded-xl text-[11px] font-bold transition cursor-pointer ${
+                dateFilter === 'month'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Bulan Ini
+            </button>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-500 mb-2" />
-            <span>Memuat riwayat absen...</span>
-          </div>
-        ) : attendances.length === 0 ? (
-          <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs space-y-2">
-            <Smile className="w-8 h-8 mx-auto text-slate-350" />
-            <p className="font-bold text-slate-500">Belum Ada Riwayat Absensi</p>
-            <p className="text-[10px] text-slate-400 max-w-xs mx-auto">Riwayat foto, hari, tanggal dan waktu kehadiran Anda akan tercatat secara rapi di sini.</p>
-          </div>
-        ) : (
-          <div className="bg-white rounded-3xl border border-slate-150 overflow-hidden shadow-xs divide-y divide-slate-100">
-            {attendances.map((item) => (
-              <div 
-                key={item.id} 
-                className="p-4 flex items-center justify-between hover:bg-slate-50/50 transition gap-4"
-              >
-                {/* Left: Avatar & Date details */}
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div 
-                    onClick={() => item.fotoUrl && setPreviewPhoto(item.fotoUrl)}
-                    className="relative w-12 h-12 rounded-2xl bg-slate-100 overflow-hidden border border-slate-200 cursor-pointer group shrink-0 shadow-inner flex items-center justify-center"
-                    title="Klik untuk perbesar foto"
-                  >
-                    {item.fotoUrl ? (
-                      <img 
-                        src={item.fotoUrl} 
-                        alt={`Selfie ${item.tanggal}`} 
-                        className="w-full h-full object-cover group-hover:scale-110 transition duration-250"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          // Hide broken image and show camera icon
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ) : null}
-                    <Camera className="w-5 h-5 text-slate-400" />
-                    {item.fotoUrl && (
-                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                        <Camera className="w-4 h-4 text-white" />
-                      </div>
-                    )}
-                  </div>
+        {(() => {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const filteredAttendances = attendances.filter(item => {
+            if (dateFilter === 'today') return item.tanggal === todayStr;
+            if (dateFilter === 'week') {
+              const sevenDaysAgo = new Date();
+              sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+              return item.tanggal >= sevenDaysAgo.toISOString().split('T')[0];
+            }
+            if (dateFilter === 'month') {
+              const monthPrefix = new Date().toISOString().substring(0, 7);
+              return item.tanggal.startsWith(monthPrefix);
+            }
+            return true;
+          });
 
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg uppercase tracking-wider">
-                        {item.hari}
-                      </span>
-                      <p className="text-xs font-black text-slate-800 truncate">
-                        {getFormattedDate(item.tanggal)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-1">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Waktu Absen: <strong className="text-slate-700">{item.waktu} WIB</strong></span>
-                    </div>
-                  </div>
-                </div>
+          const totalItems = filteredAttendances.length;
+          const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+          const safeCurrentPage = Math.min(currentPage, totalPages);
+          const startIndex = (safeCurrentPage - 1) * itemsPerPage;
+          const paginatedAttendances = filteredAttendances.slice(startIndex, startIndex + itemsPerPage);
 
-                {/* Right: Status Tag & Optional View Button */}
-                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 shrink-0">
-                  <div className="flex items-center gap-1">
-                    {item.status === 'Disetujui' ? (
-                      <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1">
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Disetujui
-                      </span>
-                    ) : (
-                      <span className="text-xs font-extrabold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 animate-pulse">
-                        <span className="w-2 h-2 rounded-full bg-amber-500" /> Proses
-                      </span>
-                    )}
-                  </div>
-                  
-                  <button
-                    onClick={() => setPreviewPhoto(item.fotoUrl)}
-                    className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 hover:bg-slate-100 text-slate-600 text-xs font-bold rounded-xl transition cursor-pointer"
-                  >
-                    <Camera className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Lihat Foto</span>
-                  </button>
-                </div>
+          if (loading) {
+            return (
+              <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-500 mb-2" />
+                <span>Memuat riwayat absen...</span>
               </div>
-            ))}
-          </div>
-        )}
+            );
+          }
+
+          if (filteredAttendances.length === 0) {
+            return (
+              <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs space-y-2">
+                <Smile className="w-8 h-8 mx-auto text-slate-350" />
+                <p className="font-bold text-slate-500">Tidak Ada Data Absensi</p>
+                <p className="text-[10px] text-slate-400 max-w-xs mx-auto">
+                  {dateFilter !== 'all' ? 'Tidak ada catatan absensi untuk filter tanggal yang dipilih.' : 'Riwayat foto, hari, tanggal dan waktu kehadiran Anda akan tercatat secara rapi di sini.'}
+                </p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-4">
+              <div className="bg-white rounded-3xl border border-slate-150 overflow-hidden shadow-xs divide-y divide-slate-100">
+                {paginatedAttendances.map((item) => (
+                  <div 
+                    key={item.id} 
+                    className="p-4 flex items-center justify-between hover:bg-slate-50/50 transition gap-4"
+                  >
+                    {/* Left: Avatar & Date details */}
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div 
+                        onClick={() => item.fotoUrl && setPreviewPhoto(item.fotoUrl)}
+                        className="relative w-12 h-12 rounded-2xl bg-slate-100 overflow-hidden border border-slate-200 cursor-pointer group shrink-0 shadow-inner flex items-center justify-center"
+                        title="Klik untuk perbesar foto"
+                      >
+                        {item.fotoUrl ? (
+                          <img 
+                            src={item.fotoUrl} 
+                            alt={`Selfie ${item.tanggal}`} 
+                            className="w-full h-full object-cover group-hover:scale-110 transition duration-250"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : null}
+                        <Camera className="w-5 h-5 text-slate-400" />
+                        {item.fotoUrl && (
+                          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                            <Camera className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                            {item.hari}
+                          </span>
+                          <p className="text-xs font-black text-slate-800 truncate">
+                            {getFormattedDate(item.tanggal)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-1">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Waktu Absen: <strong className="text-slate-700">{item.waktu} WIB</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Status Tag & Optional View Button */}
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-1">
+                        {item.status === 'Disetujui' ? (
+                          <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Disetujui
+                          </span>
+                        ) : (
+                          <span className="text-xs font-extrabold text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-xl flex items-center gap-1 animate-pulse">
+                            <span className="w-2 h-2 rounded-full bg-amber-500" /> Proses
+                          </span>
+                        )}
+                      </div>
+                      
+                      <button
+                        onClick={() => setPreviewPhoto(item.fotoUrl)}
+                        className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 hover:bg-slate-100 text-slate-600 text-xs font-bold rounded-xl transition cursor-pointer"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Lihat Foto</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination Bar Controls */}
+              {totalPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs font-medium">
+                  <div className="text-slate-500 text-[11px] font-bold">
+                    Menampilkan <span className="text-slate-800">{startIndex + 1} - {Math.min(startIndex + itemsPerPage, totalItems)}</span> dari <span className="text-slate-800">{totalItems}</span> data
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                      disabled={safeCurrentPage <= 1}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition cursor-pointer"
+                    >
+                      &laquo; Sebelumnya
+                    </button>
+                    <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl font-extrabold text-xs">
+                      Halaman {safeCurrentPage} / {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                      disabled={safeCurrentPage >= totalPages}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition cursor-pointer"
+                    >
+                      Selanjutnya &raquo;
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Lightbox Preview Modal */}

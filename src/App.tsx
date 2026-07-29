@@ -24,6 +24,17 @@ export default function App() {
   const [musyrifLoginEnabled, setMusyrifLoginEnabled] = useState(true);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
+  // Inactivity tracking for auto logout (10 minutes = 600,000 ms)
+  const lastActivityRef = React.useRef<number>(Date.now());
+
+  const handleLogout = () => {
+    setAppState('home');
+    setCurrentUser(null);
+    localStorage.removeItem('absen_app_state');
+    localStorage.removeItem('absen_current_user');
+    localStorage.removeItem('absen_login_timestamp');
+  };
+
   // Fallback demo data if Firestore hits free tier quota limit
   const ensureFallbackData = () => {
     setQuotaExceeded(true);
@@ -132,6 +143,39 @@ export default function App() {
     return () => clearInterval(checkInterval);
   }, [appState, currentUser, musyrifAttendances]);
 
+  // Auto Logout after 10 minutes (600,000 ms) of inactivity
+  useEffect(() => {
+    if (appState === 'home' || appState === 'loading') return;
+
+    lastActivityRef.current = Date.now();
+
+    const handleUserActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart', 'pointerdown'];
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, handleUserActivity, { passive: true });
+    });
+
+    const inactivityCheckInterval = setInterval(() => {
+      const tenMinutesInMs = 10 * 60 * 1000; // 10 minutes = 600,000 ms
+      const inactiveDuration = Date.now() - lastActivityRef.current;
+
+      if (inactiveDuration >= tenMinutesInMs) {
+        alert('⚠️ Sesi Anda telah berakhir secara otomatis karena tidak ada aktivitas selama 10 menit.');
+        handleLogout();
+      }
+    }, 5000); // Check every 5 seconds
+
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, handleUserActivity);
+      });
+      clearInterval(inactivityCheckInterval);
+    };
+  }, [appState]);
+
   // Fetch / Load data strictly ON DEMAND (only on page switch or explicitly triggered action)
   const fetchRoleData = async (targetState: 'loading' | 'home' | 'admin' | 'musyrif', targetUserId?: string) => {
     try {
@@ -213,8 +257,12 @@ export default function App() {
       if (targetState === 'musyrif') {
         const mId = targetUserId || currentUser?.id;
         const qAbsMusQuery = mId
-          ? query(collection(db, 'absen_musyrif'), where('musyrifId', '==', mId), orderBy('tanggal', 'desc'), limit(30))
+          ? query(collection(db, 'absen_musyrif'), where('musyrifId', '==', mId), limit(30))
           : query(collection(db, 'absen_musyrif'), orderBy('tanggal', 'desc'), limit(30));
+
+        const qAbsSisQuery = mId
+          ? query(collection(db, 'absen_siswa'), where('musyrifId', '==', mId), limit(50))
+          : query(collection(db, 'absen_siswa'), orderBy('tanggal', 'desc'), limit(50));
 
         const [qAbsMus, snapKls, snapHq, snapSis, qJrn, qAbsSis] = await Promise.all([
           getDocs(qAbsMusQuery),
@@ -222,7 +270,7 @@ export default function App() {
           getDocs(collection(db, 'halaqoh')),
           getDocs(collection(db, 'students')),
           getDocs(query(collection(db, 'catatan_harian'), orderBy('tanggal', 'desc'), limit(100))),
-          getDocs(query(collection(db, 'absen_siswa'), orderBy('tanggal', 'desc'), limit(100))),
+          getDocs(qAbsSisQuery),
         ]);
 
         const listAbsMus: AbsenMusyrif[] = [];
@@ -270,6 +318,7 @@ export default function App() {
 
   const handleLoginSuccess = (role: 'admin' | 'musyrif', userId?: string, userNama?: string) => {
     const now = Date.now();
+    lastActivityRef.current = now;
     localStorage.setItem('absen_app_state', role);
     localStorage.setItem('absen_login_timestamp', now.toString());
 
@@ -286,14 +335,6 @@ export default function App() {
       setCurrentUser(user);
       localStorage.setItem('absen_current_user', JSON.stringify(user));
     }
-  };
-
-  const handleLogout = () => {
-    setAppState('home');
-    setCurrentUser(null);
-    localStorage.removeItem('absen_app_state');
-    localStorage.removeItem('absen_current_user');
-    localStorage.removeItem('absen_login_timestamp');
   };
 
   if (appState === 'loading') {
