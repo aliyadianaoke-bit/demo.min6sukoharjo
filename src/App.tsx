@@ -352,6 +352,7 @@ export default function App() {
           halaqohs={halaqohs}
           journals={journals}
           studentAttendances={studentAttendances}
+          onUpdateStudentAttendances={setStudentAttendances}
           refreshData={refreshAllData}
         />
       )}
