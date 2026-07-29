@@ -5,8 +5,25 @@ import {
    Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet, ArrowUpDown
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
-import { db } from '../firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, setDoc, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { 
+  getAbsenMusyrif, 
+  deleteAbsenMusyrif, 
+  updateAbsenMusyrif, 
+  addClass, 
+  updateClass, 
+  deleteClass, 
+  addHalaqoh, 
+  updateHalaqoh, 
+  deleteHalaqoh, 
+  addStudent, 
+  updateStudent, 
+  deleteStudent, 
+  addMusyrif, 
+  updateMusyrif, 
+  deleteMusyrif, 
+  updateSettings, 
+  subscribeToTable 
+} from '../lib/supabaseService';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenMusyrif } from '../types';
 import { isMusyrifAutoOff14 } from '../utils';
 
@@ -111,53 +128,34 @@ export default function AdminDashboard({
   const [siswaCurrentPage, setSiswaCurrentPage] = useState(1);
   const [absenCurrentPage, setAbsenCurrentPage] = useState(1);
 
-  // Sync attendance logs when the administrator views the 'absen' tab with specific where clauses and quota limits
-  React.useEffect(() => {
-    if (activeTab !== 'absen') return;
-
+  // Sync attendance logs when the administrator views the 'absen' tab
+  const loadAdminAttendances = async () => {
     setLoadingAbsen(true);
-    let q = query(
-      collection(db, 'absen_musyrif'),
-      orderBy('tanggal', 'desc'),
-      limit(100)
-    );
-
-    if (absenStartDateFilter && absenEndDateFilter && absenStartDateFilter === absenEndDateFilter) {
-      q = query(
-        collection(db, 'absen_musyrif'),
-        where('tanggal', '==', absenStartDateFilter),
-        limit(100)
-      );
-    } else if (absenStartDateFilter) {
-      q = query(
-        collection(db, 'absen_musyrif'),
-        where('tanggal', '>=', absenStartDateFilter),
-        limit(100)
-      );
-    }
-
-    const unsub = onSnapshot(q, (snap) => {
-      const list: AbsenMusyrif[] = [];
-      snap.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() } as AbsenMusyrif);
-      });
-      // Sort in memory by newest first (tanggal desc, then waktu desc)
+    try {
+      const list = await getAbsenMusyrif(undefined, 100);
       list.sort((a, b) => {
         const dateTimeA = `${a.tanggal}T${a.waktu}`;
         const dateTimeB = `${b.tanggal}T${b.waktu}`;
         return dateTimeB.localeCompare(dateTimeA);
       });
       setAttendances(list);
-      setLoadingAbsen(false);
       setAbsenCurrentPage(1);
-    }, (err) => {
+    } catch (err) {
       console.warn('Syncing admin attendances fallback to local state:', err);
       if (musyrifAttendances && musyrifAttendances.length > 0) {
         setAttendances(musyrifAttendances);
       }
+    } finally {
       setLoadingAbsen(false);
-    });
+    }
+  };
 
+  React.useEffect(() => {
+    if (activeTab !== 'absen') return;
+    loadAdminAttendances();
+    const unsub = subscribeToTable('absen_musyrif', () => {
+      loadAdminAttendances();
+    });
     return () => unsub();
   }, [activeTab, absenStartDateFilter, absenEndDateFilter]);
 
@@ -167,8 +165,9 @@ export default function AdminDashboard({
 
     setIsSaving(true);
     try {
-      await deleteDoc(doc(db, 'absen_musyrif', id));
+      await deleteAbsenMusyrif(id);
       showFeedback('Catatan absen berhasil dihapus!');
+      await loadAdminAttendances();
     } catch (err: any) {
       showFeedback('Gagal menghapus catatan absen: ' + err.message, 'danger');
     } finally {
@@ -179,10 +178,11 @@ export default function AdminDashboard({
   const handleApproveAbsen = async (id: string) => {
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, 'absen_musyrif', id), {
+      await updateAbsenMusyrif(id, {
         status: 'Disetujui'
       });
       showFeedback('Kehadiran Musyrif berhasil disetujui!');
+      await loadAdminAttendances();
     } catch (err: any) {
       showFeedback('Gagal menyetujui kehadiran: ' + err.message, 'danger');
     } finally {
@@ -193,10 +193,11 @@ export default function AdminDashboard({
   const handleRejectAbsen = async (id: string) => {
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, 'absen_musyrif', id), {
+      await updateAbsenMusyrif(id, {
         status: 'Proses'
       });
       showFeedback('Persetujuan kehadiran musyrif berhasil dibatalkan.');
+      await loadAdminAttendances();
     } catch (err: any) {
       showFeedback('Gagal membatalkan persetujuan: ' + err.message, 'danger');
     } finally {
@@ -232,11 +233,12 @@ export default function AdminDashboard({
     setIsSaving(true);
     try {
       for (const item of unapproved) {
-        await updateDoc(doc(db, 'absen_musyrif', item.id), {
+        await updateAbsenMusyrif(item.id, {
           status: 'Disetujui'
         });
       }
       showFeedback(`Berhasil menyetujui (ACC) ${unapproved.length} data kehadiran musyrif!`);
+      await loadAdminAttendances();
     } catch (err: any) {
       showFeedback('Gagal menyetujui data massal: ' + err.message, 'danger');
     } finally {
@@ -282,14 +284,14 @@ export default function AdminDashboard({
     setIsSaving(true);
     try {
       if (modalType === 'add') {
-        await addDoc(collection(db, 'classes'), { nama: kelasNama.trim() });
+        await addClass({ nama: kelasNama.trim() });
         showFeedback('Berhasil menambah kelas baru!');
       } else if (modalType === 'edit' && editId) {
-        await updateDoc(doc(db, 'classes', editId), { nama: kelasNama.trim() });
+        await updateClass(editId, { nama: kelasNama.trim() });
         // Update students with old class name
         const associatedStudents = students.filter(s => s.kelasId === editId);
         for (const s of associatedStudents) {
-          await updateDoc(doc(db, 'students', s.id), { kelasNama: kelasNama.trim() });
+          await updateStudent(s.id, { kelasNama: kelasNama.trim() });
         }
         showFeedback('Berhasil memperbarui kelas!');
       }
@@ -312,7 +314,6 @@ export default function AdminDashboard({
       const mNames = chosenMusyrifs.map(m => m.nama).join(', ');
       const truncatedNames = mNames.length > 150 ? mNames.slice(0, 147) + '...' : mNames;
 
-      // For backward compatibility and firestore.rules:
       const mId = chosenMusyrifs.length > 0 ? chosenMusyrifs[0].id : '';
       const mNama = chosenMusyrifs.length > 0 ? truncatedNames : 'Belum Ditentukan';
 
@@ -324,29 +325,29 @@ export default function AdminDashboard({
       };
 
       if (modalType === 'add') {
-        const docRef = await addDoc(collection(db, 'halaqoh'), payload);
+        const createdHq = await addHalaqoh(payload);
 
         // Cascade update assigned Musyrifs
         for (const mId of selectedMusyrifIds) {
-          await updateDoc(doc(db, 'musyrif', mId), {
-            halaqohId: docRef.id,
+          await updateMusyrif(mId, {
+            halaqohId: createdHq.id,
             halaqohNama: halaqohNama.trim()
           });
         }
 
         showFeedback('Berhasil menambah halaqoh baru!');
       } else if (modalType === 'edit' && editId) {
-        await updateDoc(doc(db, 'halaqoh', editId), payload);
+        await updateHalaqoh(editId, payload);
 
         // Cascade updates: students referencing this halaqoh
         const associatedStudents = students.filter(s => s.halaqohId === editId);
         for (const s of associatedStudents) {
-          await updateDoc(doc(db, 'students', s.id), { halaqohNama: halaqohNama.trim() });
+          await updateStudent(s.id, { halaqohNama: halaqohNama.trim() });
         }
 
         // Cascade updates: currently assigned Musyrifs
         for (const mId of selectedMusyrifIds) {
-          await updateDoc(doc(db, 'musyrif', mId), {
+          await updateMusyrif(mId, {
             halaqohId: editId,
             halaqohNama: halaqohNama.trim()
           });
@@ -356,7 +357,7 @@ export default function AdminDashboard({
         const previouslyAssignedMusyrif = musyrifs.filter(m => m.halaqohId === editId);
         for (const m of previouslyAssignedMusyrif) {
           if (!selectedMusyrifIds.includes(m.id)) {
-            await updateDoc(doc(db, 'musyrif', m.id), {
+            await updateMusyrif(m.id, {
               halaqohId: '',
               halaqohNama: 'Belum Ditentukan'
             });
@@ -395,10 +396,10 @@ export default function AdminDashboard({
       };
 
       if (modalType === 'add') {
-        await addDoc(collection(db, 'students'), payload);
+        await addStudent(payload);
         showFeedback('Berhasil menambah siswa baru!');
       } else if (modalType === 'edit' && editId) {
-        await updateDoc(doc(db, 'students', editId), payload);
+        await updateStudent(editId, payload);
         showFeedback('Berhasil memperbarui profil siswa!');
       }
       await refreshData();
@@ -721,7 +722,7 @@ export default function AdminDashboard({
             isKelasTahfidz: row.hasTahfidzCol ? row.isKelasTahfidz : (existingStudent.isKelasTahfidz || false)
           };
 
-          await updateDoc(doc(db, 'students', existingStudent.id), payload);
+          await updateStudent(existingStudent.id, payload);
           
           const idx = accumulatedStudents.findIndex(s => s.id === existingStudent.id);
           if (idx !== -1) {
@@ -742,10 +743,10 @@ export default function AdminDashboard({
             isKelasTahfidz: row.isKelasTahfidz || false
           };
 
-          const docRef = await addDoc(collection(db, 'students'), payload);
+          const newStudent = await addStudent(payload);
           
           accumulatedStudents.push({
-            id: docRef.id,
+            id: newStudent.id,
             ...payload
           });
           importedNewCount++;
@@ -779,7 +780,7 @@ export default function AdminDashboard({
       const targetHalaqohId = bulkTargetHalaqohId || '';
 
       for (const id of selectedSiswaIds) {
-        await updateDoc(doc(db, 'students', id), {
+        await updateStudent(id, {
           halaqohId: targetHalaqohId,
           halaqohNama: targetHalaqohNama
         });
@@ -805,7 +806,7 @@ export default function AdminDashboard({
     setIsBulkAssigning(true);
     try {
       for (const id of selectedSiswaIds) {
-        await deleteDoc(doc(db, 'students', id));
+        await deleteStudent(id);
       }
 
       await refreshData();
@@ -835,7 +836,6 @@ export default function AdminDashboard({
         statusAkses: musyrifStatusAkses
       };
       
-      // Only include password if set (or on add)
       if (musyrifPassword.trim()) {
         payload.password = musyrifPassword.trim();
       }
@@ -846,23 +846,23 @@ export default function AdminDashboard({
           setIsSaving(false);
           return;
         }
-        const docRef = await addDoc(collection(db, 'musyrif'), payload);
+        const createdMusyrif = await addMusyrif(payload);
 
         // If a halaqoh was chosen, link it with this musyrif automatically
         if (musyrifHalaqohId) {
           const targetHq = halaqohs.find(h => h.id === musyrifHalaqohId);
           if (targetHq) {
             const currentIds = targetHq.musyrifIds || (targetHq.musyrifId ? [targetHq.musyrifId] : []);
-            if (!currentIds.includes(docRef.id)) {
-              const newIds = [...currentIds, docRef.id];
+            if (!currentIds.includes(createdMusyrif.id)) {
+              const newIds = [...currentIds, createdMusyrif.id];
               const assignedMusyrifs = [
                 ...musyrifs.filter(m => newIds.includes(m.id)),
-                { id: docRef.id, nama: musyrifNama.trim() }
+                { id: createdMusyrif.id, nama: musyrifNama.trim() }
               ];
               const mNames = assignedMusyrifs.map(m => m.nama).join(', ');
               const truncatedNames = mNames.length > 150 ? mNames.slice(0, 147) + '...' : mNames;
 
-              await updateDoc(doc(db, 'halaqoh', musyrifHalaqohId), {
+              await updateHalaqoh(musyrifHalaqohId, {
                 musyrifId: newIds[0] || '',
                 musyrifNama: truncatedNames,
                 musyrifIds: newIds
@@ -872,7 +872,7 @@ export default function AdminDashboard({
         }
         showFeedback('Berhasil menambah pengajar baru!');
       } else if (modalType === 'edit' && editId) {
-        await updateDoc(doc(db, 'musyrif', editId), payload);
+        await updateMusyrif(editId, payload);
 
         // Find old assigned halaqoh
         const oldMusyrif = musyrifs.find(m => m.id === editId);
@@ -891,7 +891,7 @@ export default function AdminDashboard({
               const mNames = assignedMusyrifs.map(m => m.nama).join(', ');
               const truncatedNames = mNames.length > 150 ? mNames.slice(0, 147) + '...' : mNames;
 
-              await updateDoc(doc(db, 'halaqoh', musyrifHalaqohId), {
+              await updateHalaqoh(musyrifHalaqohId, {
                 musyrifId: newIds[0] || '',
                 musyrifNama: truncatedNames,
                 musyrifIds: newIds
@@ -911,7 +911,7 @@ export default function AdminDashboard({
             const mNames = assignedMusyrifs.map(m => m.nama).join(', ');
             const truncatedNames = mNames.length > 150 ? mNames.slice(0, 147) + '...' : mNames;
 
-            await updateDoc(doc(db, 'halaqoh', oldHqId), {
+            await updateHalaqoh(oldHqId, {
               musyrifId: newIds[0] || '',
               musyrifNama: newIds.length > 0 ? truncatedNames : 'Belum Ditentukan',
               musyrifIds: newIds
@@ -936,7 +936,11 @@ export default function AdminDashboard({
     
     setIsSaving(true);
     try {
-      await deleteDoc(doc(db, collectionName, id));
+      if (collectionName === 'classes') await deleteClass(id);
+      else if (collectionName === 'students') await deleteStudent(id);
+      else if (collectionName === 'musyrif') await deleteMusyrif(id);
+      else if (collectionName === 'halaqoh') await deleteHalaqoh(id);
+
       showFeedback('Data berhasil dihapus!');
       await refreshData();
     } catch (err: any) {
@@ -959,7 +963,7 @@ export default function AdminDashboard({
     }
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, 'settings', 'admin'), {
+      await updateSettings({
         adminPassword: newPass.trim()
       });
       showFeedback('Password administrator berhasil diubah!');
@@ -978,9 +982,9 @@ export default function AdminDashboard({
   const handleToggleMusyrifLogin = async (enabled: boolean) => {
     setIsSaving(true);
     try {
-      await setDoc(doc(db, 'settings', 'admin'), {
+      await updateSettings({
         musyrifLoginEnabled: enabled
-      }, { merge: true });
+      });
       showFeedback(`Akses login Musyrif massal berhasil di-${enabled ? 'AKTIFKAN (ON)' : 'NONAKTIFKAN (OFF)'}!`);
     } catch (err: any) {
       showFeedback('Gagal mengubah status akses login Musyrif: ' + err.message, 'danger');
@@ -994,7 +998,7 @@ export default function AdminDashboard({
     const newStatus = currentStatus === 'nonaktif' ? 'aktif' : 'nonaktif';
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, 'musyrif', musyrifId), {
+      await updateMusyrif(musyrifId, {
         statusAkses: newStatus
       });
       showFeedback(`Status akses login Musyrif berhasil diubah menjadi ${newStatus === 'aktif' ? 'AKTIF (ON)' : 'NONAKTIF (OFF)'}!`);

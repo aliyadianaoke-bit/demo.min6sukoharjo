@@ -5,8 +5,17 @@ import {
   Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search, ArrowUpDown
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
-import { db } from '../firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, where, onSnapshot, limit } from 'firebase/firestore';
+import { 
+  addAbsenMusyrif, 
+  updateAbsenMusyrif, 
+  addAbsenSiswa, 
+  updateAbsenSiswa, 
+  addJournal, 
+  updateJournal, 
+  deleteJournal, 
+  getAbsenSiswa,
+  subscribeToTable 
+} from '../lib/supabaseService';
 import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi, AbsenSiswa } from '../types';
 import AbsenSayaView from './AbsenSayaView';
 import AbsenCamera from './AbsenCamera';
@@ -93,23 +102,23 @@ export default function MusyrifDashboard({
   }, [studentAttendances]);
 
   // Sync real-time student attendance for current musyrif
-  useEffect(() => {
+  const loadStudentAttendance = async () => {
     if (!userId) return;
-    const q = query(
-      collection(db, 'absen_siswa'),
-      where('musyrifId', '==', userId),
-      limit(300)
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      const list: AbsenSiswa[] = [];
-      snap.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as AbsenSiswa);
-      });
-      if (list.length > 0) {
+    try {
+      const list = await getAbsenSiswa(userId, 300);
+      if (list) {
         setLocalStudentAttendances(list);
       }
-    }, (err) => {
+    } catch (err) {
       console.warn('Notice syncing student attendance:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!userId) return;
+    loadStudentAttendance();
+    const unsub = subscribeToTable('absen_siswa', () => {
+      loadStudentAttendance();
     });
     return () => unsub();
   }, [userId]);
@@ -174,8 +183,7 @@ export default function MusyrifDashboard({
 
       if (existingRecord) {
         // Update existing record
-        const docRef = doc(db, 'absen_musyrif', existingRecord.id);
-        await updateDoc(docRef, {
+        await updateAbsenMusyrif(existingRecord.id, {
           waktu: waktuStr,
           hari: hariStr,
           fotoUrl: base64Image
@@ -192,14 +200,13 @@ export default function MusyrifDashboard({
           fotoUrl: base64Image
         };
 
-        await addDoc(collection(db, 'absen_musyrif'), payload);
+        await addAbsenMusyrif(payload);
         showFeedback('Absensi kehadiran Anda berhasil disimpan!');
       }
       setShowAutoAbsenModal(false);
     } catch (err: any) {
       console.warn('Notice saving automatic attendance:', err);
-      const isQuotaErr = err?.message?.includes('Quota') || err?.code === 'resource-exhausted';
-      showFeedback(isQuotaErr ? 'Batas kuota harian Firestore telah tercapai. Coba lagi nanti.' : 'Gagal menyimpan absensi: ' + err.message, 'danger');
+      showFeedback('Gagal menyimpan absensi: ' + err.message, 'danger');
     } finally {
       setIsAutoSaving(false);
     }
@@ -218,12 +225,12 @@ export default function MusyrifDashboard({
 
     // Find existing in local state first
     const existing = localStudentAttendances.find(
-      a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal
+      a => String(a.siswaId) === String(siswa.id) && a.tanggal === absenSiswaTanggal
     );
 
     // Optimistically update local state so UI buttons change color immediately
     setLocalStudentAttendances(prev => {
-      const idx = prev.findIndex(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal);
+      const idx = prev.findIndex(a => String(a.siswaId) === String(siswa.id) && a.tanggal === absenSiswaTanggal);
       if (idx >= 0) {
         const updated = [...prev];
         updated[idx] = { ...updated[idx], status };
@@ -232,7 +239,7 @@ export default function MusyrifDashboard({
         const newRecord: AbsenSiswa = {
           id: tempId,
           tanggal: absenSiswaTanggal,
-          siswaId: siswa.id,
+          siswaId: String(siswa.id),
           siswaNama: siswa.nama,
           noInduk: siswa.noInduk || '-',
           kelasId: siswa.kelasId || 'N/A',
@@ -246,8 +253,7 @@ export default function MusyrifDashboard({
 
     try {
       if (existing && !existing.id.startsWith('temp_')) {
-        const docRef = doc(db, 'absen_siswa', existing.id);
-        await updateDoc(docRef, { status });
+        await updateAbsenSiswa(existing.id, { status });
       } else {
         const payload = {
           tanggal: absenSiswaTanggal,
@@ -259,7 +265,7 @@ export default function MusyrifDashboard({
           status,
           musyrifId: userId
         };
-        const addedDoc = await addDoc(collection(db, 'absen_siswa'), payload);
+        const addedDoc = await addAbsenSiswa(payload);
         setLocalStudentAttendances(prev =>
           prev.map(a => (a.id === tempId ? { ...a, id: addedDoc.id } : a))
         );
@@ -267,13 +273,7 @@ export default function MusyrifDashboard({
       showFeedback(`Kehadiran ${siswa.nama} (${status}) berhasil diperbarui`);
     } catch (err: any) {
       console.warn('Notice updating student attendance:', err);
-      const isQuotaErr = err?.message?.includes('Quota') || err?.code === 'resource-exhausted';
-      showFeedback(
-        isQuotaErr 
-          ? `Kehadiran ${siswa.nama} (${status}) diperbarui di tampilan lokal (Kuota Firestore penuh)` 
-          : 'Gagal menyimpan ke server: ' + err.message, 
-        isQuotaErr ? 'success' : 'danger'
-      );
+      showFeedback('Gagal menyimpan ke server: ' + err.message, 'danger');
     } finally {
       setIsUpdatingAttendance(null);
     }
@@ -343,7 +343,7 @@ export default function MusyrifDashboard({
           status: 'Hadir',
           musyrifId: userId
         };
-        await addDoc(collection(db, 'absen_siswa'), payload);
+        await addAbsenSiswa(payload);
         successCount++;
       }
       if (newRecords.length > 0) {
@@ -353,13 +353,7 @@ export default function MusyrifDashboard({
       }
     } catch (err: any) {
       console.warn('Notice marking all present:', err);
-      const isQuotaErr = err?.message?.includes('Quota') || err?.code === 'resource-exhausted';
-      showFeedback(
-        isQuotaErr 
-          ? `Kehadiran santri diperbarui di tampilan lokal (Kuota Firestore penuh)` 
-          : 'Gagal mengabsen semua: ' + err.message, 
-        isQuotaErr ? 'success' : 'danger'
-      );
+      showFeedback('Gagal mengabsen semua: ' + err.message, 'danger');
     } finally {
       setIsSaving(false);
     }
@@ -427,10 +421,10 @@ export default function MusyrifDashboard({
       }
 
       if (finalJournalId) {
-        await updateDoc(doc(db, 'catatan_harian', finalJournalId), payload);
+        await updateJournal(finalJournalId, payload);
         showFeedback('Berhasil memperbarui catatan setoran!');
       } else {
-        await addDoc(collection(db, 'catatan_harian'), payload);
+        await addJournal(payload);
         showFeedback(`Berhasil mencatat setoran untuk ${targetSiswa.nama}!`);
       }
       
@@ -448,7 +442,7 @@ export default function MusyrifDashboard({
   const handleDeleteLog = async (id: string) => {
     if (!window.confirm('Hapus catatan setoran ini?')) return;
     try {
-      await deleteDoc(doc(db, 'catatan_harian', id));
+      await deleteJournal(id);
       showFeedback('Berhasil menghapus catatan setoran.');
       await refreshData();
     } catch (err: any) {
@@ -1604,7 +1598,7 @@ export default function MusyrifDashboard({
                               {paginatedList.map((siswa, idx) => {
                                 const prevSiswa = idx > 0 ? paginatedList[idx - 1] : null;
                                 const showClassHeader = !prevSiswa || prevSiswa.kelasNama !== siswa.kelasNama;
-                                const attRecord = localStudentAttendances.filter(a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal)[0];
+                                const attRecord = localStudentAttendances.find(a => String(a.siswaId) === String(siswa.id) && a.tanggal === absenSiswaTanggal);
                                 const currentStatus = attRecord?.status || null;
                                 const isUpdating = isUpdatingAttendance === siswa.id;
 

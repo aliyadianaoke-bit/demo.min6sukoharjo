@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, onSnapshot, query, where, limit, addDoc, doc, updateDoc } from 'firebase/firestore';
+import { getAbsenMusyrif, addAbsenMusyrif, updateAbsenMusyrif, subscribeToTable } from '../lib/supabaseService';
 import { Camera, Calendar, Clock, Smile, AlertCircle, RefreshCw, CheckCircle } from 'lucide-react';
 import AbsenCamera from './AbsenCamera';
 
@@ -48,45 +47,28 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
     });
   };
 
-  // Sync attendance list for current musyrif in real-time using specific where filters and limits
-  useEffect(() => {
+  const loadData = async () => {
     setLoading(true);
-    const todayStr = new Date().toISOString().split('T')[0];
-    
-    let q = query(
-      collection(db, 'absen_musyrif'),
-      where('musyrifId', '==', userId),
-      limit(60)
-    );
-
-    if (dateFilter === 'today') {
-      q = query(
-        collection(db, 'absen_musyrif'),
-        where('musyrifId', '==', userId),
-        where('tanggal', '==', todayStr)
-      );
-    }
-
-    const unsub = onSnapshot(q, (snap) => {
-      const list: AbsenMusyrif[] = [];
-      snap.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() } as AbsenMusyrif);
-      });
-      // Sort in memory by tanggal desc, then waktu desc
+    try {
+      const list = await getAbsenMusyrif(userId, 60);
       list.sort((a, b) => {
         const dateTimeA = `${a.tanggal}T${a.waktu}`;
         const dateTimeB = `${b.tanggal}T${b.waktu}`;
         return dateTimeB.localeCompare(dateTimeA);
       });
       setAttendances(list);
-      setLoading(false);
-      setCurrentPage(1); // Reset page on filter change
-    }, (err) => {
+    } catch (err: any) {
       console.warn('Notice fetching attendance logs:', err);
-      handleFirestoreError(err, OperationType.GET, 'absen_musyrif');
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
+  useEffect(() => {
+    loadData();
+    const unsub = subscribeToTable('absen_musyrif', () => {
+      loadData();
+    });
     return () => unsub();
   }, [userId, dateFilter]);
 
@@ -97,7 +79,6 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
     try {
       const now = new Date();
       
-      // ISO Date in local timezone or server-safe representation
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const date = String(now.getDate()).padStart(2, '0');
@@ -113,9 +94,7 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
       const existingToday = attendances.find(a => a.tanggal === tanggalStr);
 
       if (existingToday) {
-        // Update existing attendance document instead of creating a duplicate
-        const docRef = doc(db, 'absen_musyrif', existingToday.id);
-        await updateDoc(docRef, {
+        await updateAbsenMusyrif(existingToday.id, {
           waktu: waktuStr,
           hari: hariStr,
           fotoUrl: base64Image
@@ -129,26 +108,24 @@ export default function AbsenSayaView({ userId, userNama }: AbsenSayaViewProps) 
           waktu: waktuStr,
           hari: hariStr,
           fotoUrl: base64Image,
-          status: 'Proses'
+          status: 'Proses' as const
         };
 
-        await addDoc(collection(db, 'absen_musyrif'), payload);
+        await addAbsenMusyrif(payload);
         setSuccessMsg('Absensi berhasil disimpan!');
       }
       setShowCameraModal(false);
+      await loadData();
       
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (err: any) {
       console.warn('Notice saving attendance:', err);
-      const isQuotaErr = err?.message?.includes('Quota') || err?.code === 'resource-exhausted';
-      setErrorMsg(isQuotaErr 
-        ? 'Batas kuota harian Firestore (50.000 read/write) telah tercapai. Mohon coba beberapa saat lagi.' 
-        : 'Gagal menyimpan absensi: ' + err.message
-      );
+      setErrorMsg('Gagal menyimpan absensi: ' + err.message);
     } finally {
       setIsSaving(false);
     }
   };
+
 
   const todayStr = new Date().toISOString().split('T')[0];
   const hasAbsentedToday = attendances.some(a => a.tanggal === todayStr);
