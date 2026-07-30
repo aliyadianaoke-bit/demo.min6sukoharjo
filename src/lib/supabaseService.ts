@@ -469,6 +469,51 @@ export async function deleteStudent(id: string): Promise<void> {
   }
 }
 
+export function formatJournalFromDb(j: any): CatatanHarian {
+  let kategori = j.kategori;
+  let program = j.program;
+  let evaluasiTahsin = safeString(j.evaluasiTahsin);
+  let materiSetoran = safeString(j.materiSetoran);
+
+  const metaRegex = /\[PROG:(dasar|tahfidz)\|KAT:(Murojaah|Ziyadah|Setoran|Tugas Tilawah)\]\s*/;
+  const matchEval = evaluasiTahsin.match(metaRegex);
+  const matchMat = materiSetoran.match(metaRegex);
+  const match = matchEval || matchMat;
+
+  if (match) {
+    if (!program) program = match[1] as 'dasar' | 'tahfidz';
+    if (!kategori) kategori = match[2] as 'Murojaah' | 'Ziyadah' | 'Setoran' | 'Tugas Tilawah';
+    evaluasiTahsin = evaluasiTahsin.replace(metaRegex, '').trim();
+    materiSetoran = materiSetoran.replace(metaRegex, '').trim();
+  }
+
+  if (!kategori && materiSetoran) {
+    if (materiSetoran.startsWith('[MUROJAAH]') || materiSetoran.startsWith('[Murojaah]')) {
+      kategori = 'Murojaah';
+      program = program || 'tahfidz';
+    } else if (materiSetoran.startsWith('[ZIYADAH]') || materiSetoran.startsWith('[Ziyadah]')) {
+      kategori = 'Ziyadah';
+      program = program || 'tahfidz';
+    } else if (materiSetoran.startsWith('[SETORAN]') || materiSetoran.startsWith('[Setoran]')) {
+      kategori = 'Setoran';
+      program = program || 'tahfidz';
+    } else if (materiSetoran.startsWith('[TUGAS TILAWAH]') || materiSetoran.startsWith('[Tilawah]')) {
+      kategori = 'Tugas Tilawah';
+      program = program || 'tahfidz';
+    }
+  }
+
+  return {
+    ...j,
+    id: String(j.id || ''),
+    siswaNama: safeString(j.siswaNama),
+    materiSetoran: materiSetoran,
+    evaluasiTahsin: evaluasiTahsin,
+    kategori: kategori,
+    program: program
+  };
+}
+
 // CATATAN HARIAN / JOURNALS
 export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
   if (isSupabaseConfigured()) {
@@ -479,13 +524,8 @@ export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
         .order('tanggal', { ascending: false })
         .limit(limitNum);
       if (!error && Array.isArray(data)) {
-        memoryJournals = data as CatatanHarian[];
-        return memoryJournals.map(j => ({
-          ...j,
-          id: String(j.id || ''),
-          siswaNama: safeString(j.siswaNama),
-          materiSetoran: safeString(j.materiSetoran)
-        }));
+        memoryJournals = data.map(j => formatJournalFromDb(j));
+        return memoryJournals;
       } else if (error) {
         console.warn("Supabase getJournals error:", error.message || error);
       }
@@ -494,23 +534,31 @@ export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
     }
   }
 
-  return memoryJournals.map(j => ({
-    ...j,
-    id: String(j.id || ''),
-    siswaNama: safeString(j.siswaNama),
-    materiSetoran: safeString(j.materiSetoran)
-  }));
+  return memoryJournals.map(j => formatJournalFromDb(j));
 }
 
 export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<CatatanHarian> {
-  const newItem: CatatanHarian = { id: generateId('cat'), ...item };
+  const metaTag = (item.kategori || item.program) 
+    ? `[PROG:${item.program || 'tahfidz'}|KAT:${item.kategori || 'Setoran'}] ` 
+    : '';
+
+  let evaluasi = item.evaluasiTahsin || 'Lancar, terus tingkatkan.';
+  if (metaTag && !evaluasi.includes('[PROG:')) {
+    evaluasi = `${metaTag}${evaluasi}`;
+  }
+
+  const rawItem: CatatanHarian = { 
+    id: generateId('cat'), 
+    ...item, 
+    evaluasiTahsin: evaluasi 
+  };
 
   if (isSupabaseConfigured()) {
     try {
-      let { error } = await supabase.from('catatan_harian').insert(newItem);
+      let { error } = await supabase.from('catatan_harian').insert(rawItem);
       if (error && (error.message?.includes('kategori') || error.message?.includes('program') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
         console.warn("Supabase catatan_harian table missing optional columns, retrying insert without kategori/program...");
-        const { kategori, program, ...cleanItem } = newItem as any;
+        const { kategori, program, ...cleanItem } = rawItem as any;
         const retryResult = await supabase.from('catatan_harian').insert(cleanItem);
         error = retryResult.error;
       }
@@ -521,19 +569,36 @@ export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<Catat
       console.warn("Failed adding journal to Supabase:", e);
     }
   }
-  memoryJournals.unshift(newItem);
-  return newItem;
+
+  const formatted = formatJournalFromDb(rawItem);
+  memoryJournals.unshift(formatted);
+  return formatted;
 }
 
 export async function updateJournal(id: string, item: Partial<CatatanHarian>): Promise<void> {
-  memoryJournals = memoryJournals.map(j => j.id === id ? { ...j, ...item } : j);
+  let evaluasi = item.evaluasiTahsin;
+  if (item.kategori || item.program) {
+    const metaTag = `[PROG:${item.program || 'tahfidz'}|KAT:${item.kategori || 'Setoran'}] `;
+    if (!evaluasi) {
+      const existing = memoryJournals.find(j => j.id === id);
+      evaluasi = existing?.evaluasiTahsin || 'Lancar, terus tingkatkan.';
+    }
+    if (!evaluasi.includes('[PROG:')) {
+      evaluasi = `${metaTag}${evaluasi}`;
+    }
+  }
+
+  const rawUpdate = {
+    ...item,
+    ...(evaluasi ? { evaluasiTahsin: evaluasi } : {})
+  };
 
   if (isSupabaseConfigured()) {
     try {
-      let { error } = await supabase.from('catatan_harian').update(item).eq('id', id);
+      let { error } = await supabase.from('catatan_harian').update(rawUpdate).eq('id', id);
       if (error && (error.message?.includes('kategori') || error.message?.includes('program') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
         console.warn("Supabase catatan_harian table missing optional columns, retrying update without kategori/program...");
-        const { kategori, program, ...cleanItem } = item as any;
+        const { kategori, program, ...cleanItem } = rawUpdate as any;
         const retryResult = await supabase.from('catatan_harian').update(cleanItem).eq('id', id);
         error = retryResult.error;
       }
@@ -544,6 +609,13 @@ export async function updateJournal(id: string, item: Partial<CatatanHarian>): P
       console.warn("Failed updating journal in Supabase:", e);
     }
   }
+
+  memoryJournals = memoryJournals.map(j => {
+    if (j.id === id) {
+      return formatJournalFromDb({ ...j, ...rawUpdate });
+    }
+    return j;
+  });
 }
 
 export async function deleteJournal(id: string): Promise<void> {

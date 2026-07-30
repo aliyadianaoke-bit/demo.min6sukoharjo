@@ -409,12 +409,18 @@ export default function MusyrifDashboard({
       // Check if there is already an entry for this student, category, and date
       let finalJournalId = editingJournalId;
       if (!finalJournalId) {
-        const dupLog = journals.find(j => 
-          j.siswaId === targetSiswa.id && 
-          j.tanggal === formTanggal && 
-          (j.kategori === selectedKategori || (!j.kategori && !selectedKategori)) &&
-          (j.program === selectedProgram || (!j.program && !selectedProgram))
-        );
+        const dupLog = journals.find(j => {
+          if (j.siswaId !== targetSiswa.id || j.tanggal !== formTanggal) return false;
+          const logProgram = j.program || (j.kategori ? 'tahfidz' : 'dasar');
+          const logKategori = j.kategori || (logProgram === 'tahfidz' ? 'Setoran' : undefined);
+
+          if (selectedProgram && logProgram !== selectedProgram) return false;
+          if (selectedKategori) {
+            return logKategori === selectedKategori;
+          } else {
+            return !logKategori || logKategori === 'Setoran';
+          }
+        });
         if (dupLog) {
           finalJournalId = dupLog.id;
         }
