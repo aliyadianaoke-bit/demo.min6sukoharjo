@@ -480,40 +480,60 @@ export default function MusyrifDashboard({
     });
     const sortedStudents = [...activeStudents].sort((a, b) => a.nama.localeCompare(b.nama));
 
+    const categoryOrderMap: Record<string, number> = {
+      'Murojaah': 1,
+      'Ziyadah': 2,
+      'Setoran': 3,
+      'Tugas Tilawah': 4
+    };
+
+    const uniqueStudentsWithLogs = new Set(dailyRecapLogs.map(l => l.siswaId)).size;
+
     let text = `*REKAP HARIAN KELAS ${kelasNama.toUpperCase()} (${programLabel.toUpperCase()})*\n`;
     text += `*Markaz Muhibbil Qur'an*\n\n`;
     text += `🏫 *Kelas / Program*: ${kelasNama} / ${programLabel}\n`;
     text += `👤 *Musyrif/ah*: Ustadz/ah ${userNama}\n`;
     text += `📅 *Tanggal*: ${formattedDate}\n`;
-    text += `📊 *Total Setoran*: ${dailyRecapLogs.length} dari ${sortedStudents.length} Santri\n\n`;
+    text += `📊 *Total Setoran*: ${uniqueStudentsWithLogs} dari ${sortedStudents.length} Santri (${dailyRecapLogs.length} Input)\n\n`;
     text += `===================================\n\n`;
 
     if (sortedStudents.length === 0) {
       text += `_Tidak ada santri di kelas ini._\n`;
     } else {
       sortedStudents.forEach((siswa, idx) => {
-        const log = dailyRecapLogs.find(j => j.siswaId === siswa.id);
+        const studentLogs = dailyRecapLogs.filter(j => j.siswaId === siswa.id);
 
-        text += `*${idx + 1}. ${siswa.nama}* (No Induk: ${siswa.noInduk || '-'})\n`;
-        if (log) {
-          const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
-                             log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
-                             log.nilai === 'C' ? 'Jayyid (C)' : 
-                             log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+        text += `*${idx + 1}. ${siswa.nama.toUpperCase()}* (No Induk: ${siswa.noInduk || '-'})\n`;
+        if (studentLogs.length > 0) {
+          const sortedLogs = [...studentLogs].sort((a, b) => {
+            const orderA = a.kategori ? (categoryOrderMap[a.kategori] || 99) : 99;
+            const orderB = b.kategori ? (categoryOrderMap[b.kategori] || 99) : 99;
+            return orderA - orderB;
+          });
 
-          const kategoriPrefix = log.kategori ? `[${log.kategori.toUpperCase()}] ` : '';
-          const isTahfidz = log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori);
+          sortedLogs.forEach(log => {
+            const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
+                               log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
+                               log.nilai === 'C' ? 'Jayyid (C)' : 
+                               log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
 
-          text += `• Materi: _${kategoriPrefix}${log.materiSetoran}_\n`;
-          if (!isTahfidz) {
-            text += `• Evaluasi / Catatan: _${log.evaluasiTahsin || '-'}_\n`;
-          }
-          text += `• Nilai: *${labelNilai}*\n\n`;
+            const isTahfidzMode = selectedProgram === 'tahfidz' || !!log.kategori;
+
+            if (isTahfidzMode) {
+              const katLabel = log.kategori || 'Setoran';
+              text += `• *${katLabel}*: _${log.materiSetoran}_ (Nilai: *${labelNilai}*)\n`;
+            } else {
+              text += `• *Materi*: _${log.materiSetoran}_\n`;
+              text += `• *Evaluasi*: _${log.evaluasiTahsin || '-'}\n`;
+              text += `• *Nilai*: *${labelNilai}*\n`;
+            }
+          });
+          text += `\n`;
         } else {
           const att = localStudentAttendances.find(a => a.siswaId === siswa.id && a.tanggal === rekapHariTanggal);
           const attStatus = att ? att.status : 'Tidak Ada Setoran / Absen';
           const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
-          text += `• Status: _${displayStatus}_\n\n`;
+          text += `• *Status*: _${displayStatus}_\n\n`;
         }
       });
     }
@@ -559,33 +579,66 @@ export default function MusyrifDashboard({
     });
     const sortedStudents = [...activeStudents].sort((a, b) => a.nama.localeCompare(b.nama));
 
+    const categoryOrderMap: Record<string, number> = {
+      'Murojaah': 1,
+      'Ziyadah': 2,
+      'Setoran': 3,
+      'Tugas Tilawah': 4
+    };
+
     const tableRowsHtml = sortedStudents.map((siswa, index) => {
-      const log = dailyRecapLogs.find(j => j.siswaId === siswa.id);
+      const studentLogs = dailyRecapLogs.filter(j => j.siswaId === siswa.id);
       
-      if (log) {
-        const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
-                           log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
-                           log.nilai === 'C' ? 'Jayyid (C)' : 
-                           log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
-        const isTahfidzLog = log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori);
-        const categoryBadge = log.kategori 
-          ? `<span style="display: inline-block; font-size: 8px; background-color: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 1px 4px; border-radius: 3px; text-transform: uppercase; margin-right: 4px; font-weight: bold; font-family: sans-serif;">${log.kategori}</span>` 
-          : '';
+      if (studentLogs.length > 0) {
+        const sortedLogs = [...studentLogs].sort((a, b) => {
+          const orderA = a.kategori ? (categoryOrderMap[a.kategori] || 99) : 99;
+          const orderB = b.kategori ? (categoryOrderMap[b.kategori] || 99) : 99;
+          return orderA - orderB;
+        });
+
+        const isTahfidzMode = selectedProgram === 'tahfidz' || sortedLogs.some(l => !!l.kategori);
+
+        const materiCellHtml = sortedLogs.map((log, lIdx) => {
+          const isLast = lIdx === sortedLogs.length - 1;
+          const borderStyle = isLast ? '' : 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px; margin-bottom: 4px;';
+          const katLabel = log.kategori 
+            ? `<span style="display: inline-block; font-size: 8px; font-weight: 800; background-color: #f1f5f9; border: 1px solid #cbd5e1; color: #0f766e; padding: 1px 5px; border-radius: 4px; text-transform: uppercase; margin-right: 6px;">${log.kategori}</span>` 
+            : '';
+          return `<div style="${borderStyle}">${katLabel}<strong style="color: #0f766e;">${log.materiSetoran}</strong></div>`;
+        }).join('');
+
+        const evaluasiCellHtml = sortedLogs.map((log, lIdx) => {
+          const isLast = lIdx === sortedLogs.length - 1;
+          const borderStyle = isLast ? '' : 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px; margin-bottom: 4px;';
+          const evalText = isTahfidzMode ? '-' : (log.evaluasiTahsin || '-');
+          return `<div style="${borderStyle}">${evalText}</div>`;
+        }).join('');
+
+        const nilaiCellHtml = sortedLogs.map((log, lIdx) => {
+          const isLast = lIdx === sortedLogs.length - 1;
+          const borderStyle = isLast ? '' : 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px; margin-bottom: 4px;';
+          const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
+                             log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
+                             log.nilai === 'C' ? 'Jayyid (C)' : 
+                             log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+          return `
+            <div style="${borderStyle} text-align: center;">
+              <span class="nilai-badge nilai-${log.nilai}">${labelNilai}</span>
+            </div>
+          `;
+        }).join('');
+
         return `
           <tr>
-            <td style="text-align: center; font-weight: bold;">${index + 1}</td>
-            <td style="font-family: monospace; text-align: center;">${siswa.noInduk || '-'}</td>
-            <td>
+            <td style="text-align: center; font-weight: bold; vertical-align: middle;">${index + 1}</td>
+            <td style="font-family: monospace; text-align: center; vertical-align: middle;">${siswa.noInduk || '-'}</td>
+            <td style="vertical-align: middle;">
               <div style="font-weight: 700; text-transform: uppercase;">${siswa.nama}</div>
               <div style="font-size: 9px; color: #64748b;">Kelas: ${kelasNama}</div>
             </td>
-            <td style="font-weight: 600; color: #0f766e;">
-              ${categoryBadge}${log.materiSetoran}
-            </td>
-            <td style="color: #475569; font-style: italic;">${isTahfidzLog ? '-' : (log.evaluasiTahsin || '-')}</td>
-            <td style="text-align: center;">
-              <span class="nilai-badge nilai-${log.nilai}">${labelNilai}</span>
-            </td>
+            <td style="vertical-align: top;">${materiCellHtml}</td>
+            <td style="color: #475569; font-style: italic; vertical-align: top;">${evaluasiCellHtml}</td>
+            <td style="vertical-align: top;">${nilaiCellHtml}</td>
           </tr>
         `;
       } else {
@@ -2201,7 +2254,7 @@ export default function MusyrifDashboard({
                       </div>
                       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
                         <div className="text-xs font-bold text-emerald-900">
-                          Total Diinput: <strong>{dailyRecapLogs.length} dari {inputTabStudents.length} Siswa</strong>
+                          Total Diinput: <strong>{new Set(dailyRecapLogs.map(l => l.siswaId)).size} dari {selectBulanStudents.length} Siswa</strong> ({dailyRecapLogs.length} Input)
                         </div>
                         <div className="flex gap-2 w-full sm:w-auto">
                           <button
@@ -2242,35 +2295,106 @@ export default function MusyrifDashboard({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-150 text-[11.5px] text-slate-700">
-                          {dailyRecapLogs.length === 0 ? (
+                          {selectBulanStudents.length === 0 ? (
                             <tr>
                               <td colSpan={7} className="py-12 text-center text-slate-400 font-medium italic">
-                                Tidak ada data setoran yang tercatat pada kelas, program, dan tanggal ini.
+                                Tidak ada siswa terdaftar pada kelas dan program ini.
                               </td>
                             </tr>
                           ) : (
-                            dailyRecapLogs.map((log, index) => (
-                              <tr key={log.id} className="hover:bg-slate-50/40">
-                                <td className="py-3 px-4 font-mono font-bold text-slate-400">{index + 1}</td>
-                                <td className="py-3 px-4 font-mono">{log.noInduk}</td>
-                                <td className="py-3 px-4 font-bold text-slate-900">{log.siswaNama}</td>
-                                <td className="py-3 px-4 font-semibold text-emerald-900">{log.materiSetoran}</td>
-                                <td className="py-3 px-4 text-slate-500 italic max-w-xs truncate" title={selectedProgram === 'tahfidz' ? '-' : log.evaluasiTahsin}>{selectedProgram === 'tahfidz' ? '-' : log.evaluasiTahsin}</td>
-                                <td className="py-3 px-4 text-center">
-                                  <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase ${getNilaiBadgeClass(log.nilai)}`}>
-                                    {getNilaiLabel(log.nilai)}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4 text-right">
-                                  <button
-                                    onClick={() => handleDeleteLog(log.id)}
-                                    className="text-rose-600 hover:text-rose-800 p-1 bg-rose-50 hover:bg-rose-100 rounded-md cursor-pointer transition"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))
+                            selectBulanStudents.map((siswa, index) => {
+                              const studentLogs = dailyRecapLogs.filter(j => j.siswaId === siswa.id);
+                              const categoryOrderMap: Record<string, number> = {
+                                'Murojaah': 1,
+                                'Ziyadah': 2,
+                                'Setoran': 3,
+                                'Tugas Tilawah': 4
+                              };
+
+                              if (studentLogs.length > 0) {
+                                const sortedLogs = [...studentLogs].sort((a, b) => {
+                                  const orderA = a.kategori ? (categoryOrderMap[a.kategori] || 99) : 99;
+                                  const orderB = b.kategori ? (categoryOrderMap[b.kategori] || 99) : 99;
+                                  return orderA - orderB;
+                                });
+
+                                return (
+                                  <tr key={siswa.id} className="hover:bg-slate-50/40">
+                                    <td className="py-3.5 px-4 font-mono font-bold text-slate-400 align-top">{index + 1}</td>
+                                    <td className="py-3.5 px-4 font-mono align-top text-slate-600">{siswa.noInduk || '-'}</td>
+                                    <td className="py-3.5 px-4 align-top">
+                                      <div className="font-bold text-slate-900 uppercase">{siswa.nama}</div>
+                                      <span className="text-[10px] text-emerald-700 font-semibold">{studentLogs.length} Input Setoran</span>
+                                    </td>
+                                    <td className="py-3.5 px-4 align-top">
+                                      <div className="space-y-2">
+                                        {sortedLogs.map((log, lIdx) => (
+                                          <div key={log.id} className={`pb-1.5 ${lIdx < sortedLogs.length - 1 ? 'border-b border-slate-150/70' : ''}`}>
+                                            {log.kategori && (
+                                              <span className="inline-block text-[9px] font-black uppercase bg-emerald-50 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded-md mr-1.5 shadow-2xs">
+                                                {log.kategori}
+                                              </span>
+                                            )}
+                                            <span className="font-bold text-emerald-950">{log.materiSetoran}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                    <td className="py-3.5 px-4 align-top">
+                                      <div className="space-y-2">
+                                        {sortedLogs.map((log, lIdx) => (
+                                          <div key={log.id} className={`pb-1.5 text-slate-500 italic ${lIdx < sortedLogs.length - 1 ? 'border-b border-slate-150/70' : ''}`}>
+                                            {selectedProgram === 'tahfidz' ? '-' : (log.evaluasiTahsin || '-')}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                    <td className="py-3.5 px-4 align-top text-center">
+                                      <div className="space-y-2">
+                                        {sortedLogs.map((log, lIdx) => (
+                                          <div key={log.id} className={`pb-1.5 ${lIdx < sortedLogs.length - 1 ? 'border-b border-slate-150/70' : ''}`}>
+                                            <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${getNilaiBadgeClass(log.nilai)}`}>
+                                              {getNilaiLabel(log.nilai)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                    <td className="py-3.5 px-4 align-top text-right">
+                                      <div className="space-y-2">
+                                        {sortedLogs.map((log, lIdx) => (
+                                          <div key={log.id} className={`pb-1.5 ${lIdx < sortedLogs.length - 1 ? 'border-b border-slate-150/70' : ''}`}>
+                                            <button
+                                              onClick={() => handleDeleteLog(log.id)}
+                                              className="text-rose-600 hover:text-rose-800 p-1 bg-rose-50 hover:bg-rose-100 rounded-md cursor-pointer transition inline-flex items-center gap-1 text-[10px] font-bold"
+                                              title={`Hapus ${log.kategori || 'setoran'}`}
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              } else {
+                                const att = localStudentAttendances.find(a => a.siswaId === siswa.id && a.tanggal === rekapHariTanggal);
+                                const attStatus = att ? att.status : 'Tidak Ada Setoran / Absen';
+                                const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
+                                const isAbsent = attStatus !== 'Hadir';
+
+                                return (
+                                  <tr key={siswa.id} className={isAbsent ? 'bg-rose-50/30 text-rose-900' : 'bg-emerald-50/20 text-emerald-900'}>
+                                    <td className="py-3.5 px-4 font-mono font-bold text-slate-400">{index + 1}</td>
+                                    <td className="py-3.5 px-4 font-mono text-slate-500">{siswa.noInduk || '-'}</td>
+                                    <td className="py-3.5 px-4 font-bold text-slate-900 uppercase">{siswa.nama}</td>
+                                    <td colSpan={4} className="py-3.5 px-4 italic font-semibold text-slate-500">
+                                      {displayStatus}
+                                    </td>
+                                  </tr>
+                                );
+                              }
+                            })
                           )}
                         </tbody>
                       </table>
