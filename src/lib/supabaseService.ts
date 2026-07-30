@@ -69,8 +69,47 @@ let memoryJournals: CatatanHarian[] = [
   }
 ];
 
-let memoryAbsenMusyrif: AbsenMusyrif[] = [];
-let memoryAbsenSiswa: AbsenSiswa[] = [];
+const ABSEN_SISWA_KEY = 'mmq_absen_siswa_v2';
+const ABSEN_MUSYRIF_KEY = 'mmq_absen_musyrif_v2';
+
+function loadStoredAbsenSiswa(): AbsenSiswa[] {
+  try {
+    const raw = localStorage.getItem(ABSEN_SISWA_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed loading stored absen_siswa:", e);
+  }
+  return [];
+}
+
+function saveStoredAbsenSiswa(data: AbsenSiswa[]) {
+  try {
+    localStorage.setItem(ABSEN_SISWA_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed saving stored absen_siswa:", e);
+  }
+}
+
+function loadStoredAbsenMusyrif(): AbsenMusyrif[] {
+  try {
+    const raw = localStorage.getItem(ABSEN_MUSYRIF_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed loading stored absen_musyrif:", e);
+  }
+  return [];
+}
+
+function saveStoredAbsenMusyrif(data: AbsenMusyrif[]) {
+  try {
+    localStorage.setItem(ABSEN_MUSYRIF_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed saving stored absen_musyrif:", e);
+  }
+}
+
+let memoryAbsenMusyrif: AbsenMusyrif[] = loadStoredAbsenMusyrif();
+let memoryAbsenSiswa: AbsenSiswa[] = loadStoredAbsenSiswa();
 
 // Helper to generate IDs
 export const generateId = (prefix: string = 'id') => `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -634,24 +673,31 @@ export async function deleteJournal(id: string): Promise<void> {
 }
 
 // ABSEN MUSYRIF
-export async function getAbsenMusyrif(musyrifId?: string, limitNum = 50): Promise<AbsenMusyrif[]> {
-  let list: AbsenMusyrif[] = memoryAbsenMusyrif;
+export async function getAbsenMusyrif(musyrifId?: string, limitNum = 100): Promise<AbsenMusyrif[]> {
   if (isSupabaseConfigured()) {
     try {
       let queryBuilder = supabase.from('absen_musyrif').select('*').order('tanggal', { ascending: false }).limit(limitNum);
       if (musyrifId) queryBuilder = queryBuilder.eq('musyrifId', musyrifId);
       const { data, error } = await queryBuilder;
-      if (!error && Array.isArray(data)) {
-        memoryAbsenMusyrif = data as AbsenMusyrif[];
-        list = memoryAbsenMusyrif;
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const dataMap = new Map(data.map(d => [d.id, d]));
+        const merged = [...data];
+        for (const localItem of memoryAbsenMusyrif) {
+          if (!dataMap.has(localItem.id)) {
+            merged.push(localItem);
+          }
+        }
+        memoryAbsenMusyrif = merged;
+        saveStoredAbsenMusyrif(memoryAbsenMusyrif);
       }
     } catch (e) {
       console.warn("Supabase getAbsenMusyrif error:", e);
     }
   }
 
+  let list = [...memoryAbsenMusyrif];
   if (musyrifId) {
-    list = list.filter(a => a.musyrifId === musyrifId);
+    list = list.filter(a => a.musyrifId === musyrifId || !a.musyrifId);
   }
   list.sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
   return list.slice(0, limitNum);
@@ -659,6 +705,16 @@ export async function getAbsenMusyrif(musyrifId?: string, limitNum = 50): Promis
 
 export async function addAbsenMusyrif(item: Omit<AbsenMusyrif, 'id'>): Promise<AbsenMusyrif> {
   const newItem: AbsenMusyrif = { id: generateId('abm'), ...item };
+
+  const existingIdx = memoryAbsenMusyrif.findIndex(
+    a => a.musyrifId === item.musyrifId && a.tanggal === item.tanggal
+  );
+  if (existingIdx >= 0) {
+    memoryAbsenMusyrif[existingIdx] = { ...memoryAbsenMusyrif[existingIdx], ...newItem };
+  } else {
+    memoryAbsenMusyrif.unshift(newItem);
+  }
+  saveStoredAbsenMusyrif(memoryAbsenMusyrif);
 
   if (isSupabaseConfigured()) {
     try {
@@ -670,12 +726,12 @@ export async function addAbsenMusyrif(item: Omit<AbsenMusyrif, 'id'>): Promise<A
       console.warn("Failed adding absen musyrif to Supabase:", e);
     }
   }
-  memoryAbsenMusyrif.unshift(newItem);
   return newItem;
 }
 
 export async function updateAbsenMusyrif(id: string, item: Partial<AbsenMusyrif>): Promise<void> {
   memoryAbsenMusyrif = memoryAbsenMusyrif.map(a => a.id === id ? { ...a, ...item } : a);
+  saveStoredAbsenMusyrif(memoryAbsenMusyrif);
 
   if (isSupabaseConfigured()) {
     try {
@@ -691,6 +747,7 @@ export async function updateAbsenMusyrif(id: string, item: Partial<AbsenMusyrif>
 
 export async function deleteAbsenMusyrif(id: string): Promise<void> {
   memoryAbsenMusyrif = memoryAbsenMusyrif.filter(a => a.id !== id);
+  saveStoredAbsenMusyrif(memoryAbsenMusyrif);
 
   if (isSupabaseConfigured()) {
     try {
@@ -705,31 +762,48 @@ export async function deleteAbsenMusyrif(id: string): Promise<void> {
 }
 
 // ABSEN SISWA
-export async function getAbsenSiswa(musyrifId?: string, limitNum = 100): Promise<AbsenSiswa[]> {
-  let list: AbsenSiswa[] = memoryAbsenSiswa;
+export async function getAbsenSiswa(musyrifId?: string, limitNum = 300): Promise<AbsenSiswa[]> {
   if (isSupabaseConfigured()) {
     try {
       let queryBuilder = supabase.from('absen_siswa').select('*').order('tanggal', { ascending: false }).limit(limitNum);
       if (musyrifId) queryBuilder = queryBuilder.eq('musyrifId', musyrifId);
       const { data, error } = await queryBuilder;
-      if (!error && Array.isArray(data)) {
-        memoryAbsenSiswa = data as AbsenSiswa[];
-        list = memoryAbsenSiswa;
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const dataMap = new Map(data.map(d => [d.id, d]));
+        const merged = [...data];
+        for (const localItem of memoryAbsenSiswa) {
+          if (!dataMap.has(localItem.id)) {
+            merged.push(localItem);
+          }
+        }
+        memoryAbsenSiswa = merged;
+        saveStoredAbsenSiswa(memoryAbsenSiswa);
       }
     } catch (e) {
       console.warn("Supabase getAbsenSiswa error:", e);
     }
   }
 
+  let list = [...memoryAbsenSiswa];
   if (musyrifId) {
-    list = list.filter(a => a.musyrifId === musyrifId);
+    list = list.filter(a => a.musyrifId === musyrifId || !a.musyrifId);
   }
   list.sort((a, b) => (b.tanggal || '').localeCompare(a.tanggal || ''));
   return list.slice(0, limitNum);
 }
 
 export async function addAbsenSiswa(item: Omit<AbsenSiswa, 'id'>): Promise<AbsenSiswa> {
-  const newItem: SiswaAbsenItem = { id: generateId('abs'), ...item } as any;
+  const newItem: AbsenSiswa = { id: generateId('abs'), ...item };
+
+  const existingIdx = memoryAbsenSiswa.findIndex(
+    a => String(a.siswaId) === String(item.siswaId) && a.tanggal === item.tanggal
+  );
+  if (existingIdx >= 0) {
+    memoryAbsenSiswa[existingIdx] = { ...memoryAbsenSiswa[existingIdx], ...item, id: memoryAbsenSiswa[existingIdx].id };
+  } else {
+    memoryAbsenSiswa.unshift(newItem);
+  }
+  saveStoredAbsenSiswa(memoryAbsenSiswa);
 
   if (isSupabaseConfigured()) {
     try {
@@ -747,12 +821,13 @@ export async function addAbsenSiswa(item: Omit<AbsenSiswa, 'id'>): Promise<Absen
       console.warn("Failed adding absen siswa to Supabase:", e);
     }
   }
-  memoryAbsenSiswa.unshift(newItem as any);
-  return newItem as any;
+
+  return newItem;
 }
 
 export async function updateAbsenSiswa(id: string, item: Partial<AbsenSiswa>): Promise<void> {
   memoryAbsenSiswa = memoryAbsenSiswa.map(a => a.id === id ? { ...a, ...item } : a);
+  saveStoredAbsenSiswa(memoryAbsenSiswa);
 
   if (isSupabaseConfigured()) {
     try {
@@ -768,6 +843,7 @@ export async function updateAbsenSiswa(id: string, item: Partial<AbsenSiswa>): P
 
 export async function deleteAbsenSiswa(id: string): Promise<void> {
   memoryAbsenSiswa = memoryAbsenSiswa.filter(a => a.id !== id);
+  saveStoredAbsenSiswa(memoryAbsenSiswa);
 
   if (isSupabaseConfigured()) {
     try {

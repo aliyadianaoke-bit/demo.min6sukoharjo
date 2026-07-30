@@ -96,7 +96,7 @@ export default function MusyrifDashboard({
   const [localStudentAttendances, setLocalStudentAttendances] = useState<AbsenSiswa[]>(studentAttendances || []);
 
   useEffect(() => {
-    if (studentAttendances && studentAttendances.length > 0) {
+    if (studentAttendances) {
       setLocalStudentAttendances(studentAttendances);
     }
   }, [studentAttendances]);
