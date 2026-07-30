@@ -1037,7 +1037,7 @@ export default function AdminDashboard({
     // Build compact table rows for printing
     const tableRowsHtml = reportStudents.map((siswa, idx) => {
       const baseHistory = journals
-        .filter(j => j.siswaId === siswa.id && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)))
+        .filter(j => String(j.siswaId) === String(siswa.id) && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)))
         .sort((a, b) => b.tanggal.localeCompare(a.tanggal));
       
       const totalSetoran = baseHistory.length;
@@ -2377,7 +2377,7 @@ export default function AdminDashboard({
                     ) : (
                       reportStudents.map((siswa, isDx) => {
                         // Gather history logs of this student
-                        const baseHistory = journals.filter(j => j.siswaId === siswa.id && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)));
+                        const baseHistory = journals.filter(j => String(j.siswaId) === String(siswa.id) && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)));
                         
                         return (
                           <div key={siswa.id} className="p-5 bg-white border border-slate-100 shadow-xs rounded-2xl space-y-3">

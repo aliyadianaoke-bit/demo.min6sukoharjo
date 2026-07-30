@@ -127,7 +127,7 @@ export default function MusyrifDashboard({
   const lastEntryForKategori = useMemo(() => {
     if (!targetSiswa || !selectedKategori) return null;
     return journals.find(j => 
-      j.siswaId === targetSiswa.id && 
+      String(j.siswaId) === String(targetSiswa.id) && 
       j.id !== editingJournalId &&
       (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)) &&
       (j.kategori === selectedKategori || (!j.kategori && selectedKategori === 'Setoran'))
@@ -306,7 +306,7 @@ export default function MusyrifDashboard({
 
     for (const siswa of targetStudents) {
       const existing = localStudentAttendances.find(
-        a => a.siswaId === siswa.id && a.tanggal === absenSiswaTanggal
+        a => String(a.siswaId) === String(siswa.id) && a.tanggal === absenSiswaTanggal
       );
       if (!existing) {
         const sKelas = classes.find(c => c.id === siswa.kelasId);
@@ -410,7 +410,7 @@ export default function MusyrifDashboard({
       let finalJournalId = editingJournalId;
       if (!finalJournalId) {
         const dupLog = journals.find(j => {
-          if (j.siswaId !== targetSiswa.id || j.tanggal !== formTanggal) return false;
+          if (String(j.siswaId) !== String(targetSiswa.id) || j.tanggal !== formTanggal) return false;
           const logProgram = j.program || (j.kategori ? 'tahfidz' : 'dasar');
           const logKategori = j.kategori || (logProgram === 'tahfidz' ? 'Setoran' : undefined);
 
@@ -501,7 +501,7 @@ export default function MusyrifDashboard({
       text += `_Tidak ada santri di kelas ini._\n`;
     } else {
       sortedStudents.forEach((siswa, idx) => {
-        const studentLogs = dailyRecapLogs.filter(j => j.siswaId === siswa.id);
+        const studentLogs = dailyRecapLogs.filter(j => String(j.siswaId) === String(siswa.id));
 
         text += `*${idx + 1}. ${siswa.nama.toUpperCase()}* (No Induk: ${siswa.noInduk || '-'})\n`;
         if (studentLogs.length > 0) {
@@ -533,8 +533,8 @@ export default function MusyrifDashboard({
           });
           text += `\n`;
         } else {
-          const att = localStudentAttendances.find(a => a.siswaId === siswa.id && a.tanggal === rekapHariTanggal);
-          const attStatus = att ? att.status : 'Tidak Ada Setoran / Absen';
+          const att = localStudentAttendances.find(a => String(a.siswaId) === String(siswa.id) && a.tanggal === rekapHariTanggal);
+          const attStatus = att ? att.status : 'Belum Absen';
           const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
           text += `• *Status*: _${displayStatus}_\n\n`;
         }
@@ -590,7 +590,7 @@ export default function MusyrifDashboard({
     };
 
     const tableRowsHtml = sortedStudents.map((siswa, index) => {
-      const studentLogs = dailyRecapLogs.filter(j => j.siswaId === siswa.id);
+      const studentLogs = dailyRecapLogs.filter(j => String(j.siswaId) === String(siswa.id));
       
       if (studentLogs.length > 0) {
         const sortedLogs = [...studentLogs].sort((a, b) => {
@@ -645,8 +645,8 @@ export default function MusyrifDashboard({
           </tr>
         `;
       } else {
-        const att = localStudentAttendances.find(a => a.siswaId === siswa.id && a.tanggal === rekapHariTanggal);
-        const attStatus = att ? att.status : 'Tidak Ada Setoran / Absen';
+        const att = localStudentAttendances.find(a => String(a.siswaId) === String(siswa.id) && a.tanggal === rekapHariTanggal);
+        const attStatus = att ? att.status : 'Belum Absen';
         const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
         const isAbsent = attStatus !== 'Hadir';
         const rowBg = isAbsent ? '#fff1f2' : '#f0fdf4';
@@ -1237,7 +1237,7 @@ export default function MusyrifDashboard({
     if (j.tanggal !== rekapHariTanggal) return false;
     
     // Find student in students list
-    const s = students.find(siswa => siswa.id === j.siswaId);
+    const s = students.find(siswa => String(siswa.id) === String(j.siswaId));
     if (!s) return false;
 
     // Must be managed by this Musyrif
@@ -1277,7 +1277,7 @@ export default function MusyrifDashboard({
   // Month string format: 2026-XX
   const selectedYearMonthPrefix = `2026-${selectedBulanMonth}`;
   const studentMonthlyLogs = journals.filter(j => {
-    if (j.siswaId !== selectedBulanSiswaId || !j.tanggal.startsWith(selectedYearMonthPrefix)) return false;
+    if (String(j.siswaId) !== String(selectedBulanSiswaId) || !j.tanggal.startsWith(selectedYearMonthPrefix)) return false;
     if (selectedProgram === 'tahfidz') {
       return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
     } else {
@@ -1563,7 +1563,7 @@ export default function MusyrifDashboard({
                       let countBelum = 0;
 
                       list.forEach(s => {
-                        const rec = todaysAbsen.find(a => a.siswaId === s.id);
+                        const rec = todaysAbsen.find(a => String(a.siswaId) === String(s.id));
                         if (!rec) {
                           countBelum++;
                         } else if (rec.status === 'Hadir') {
@@ -1941,7 +1941,7 @@ export default function MusyrifDashboard({
                               // Find if there is a setoran entry today
                               const todayStr = new Date().toISOString().split('T')[0];
                               const logsHariIni = journals.filter(j => {
-                                if (j.siswaId !== siswa.id || j.tanggal !== todayStr) return false;
+                                if (String(j.siswaId) !== String(siswa.id) || j.tanggal !== todayStr) return false;
                                 if (selectedProgram === 'tahfidz') {
                                   return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
                                 } else {
@@ -2306,7 +2306,7 @@ export default function MusyrifDashboard({
                             </tr>
                           ) : (
                             selectBulanStudents.map((siswa, index) => {
-                              const studentLogs = dailyRecapLogs.filter(j => j.siswaId === siswa.id);
+                              const studentLogs = dailyRecapLogs.filter(j => String(j.siswaId) === String(siswa.id));
                               const categoryOrderMap: Record<string, number> = {
                                 'Murojaah': 1,
                                 'Ziyadah': 2,
@@ -2381,8 +2381,8 @@ export default function MusyrifDashboard({
                                   </tr>
                                 );
                               } else {
-                                const att = localStudentAttendances.find(a => a.siswaId === siswa.id && a.tanggal === rekapHariTanggal);
-                                const attStatus = att ? att.status : 'Tidak Ada Setoran / Absen';
+                                const att = localStudentAttendances.find(a => String(a.siswaId) === String(siswa.id) && a.tanggal === rekapHariTanggal);
+                                const attStatus = att ? att.status : 'Belum Absen';
                                 const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
                                 const isAbsent = attStatus !== 'Hadir';
 
