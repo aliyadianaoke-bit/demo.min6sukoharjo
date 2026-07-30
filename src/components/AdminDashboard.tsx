@@ -2415,7 +2415,10 @@ export default function AdminDashboard({
                                                  log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)'}
                                         </span>
                                       </div>
-                                      <div><strong>Materi:</strong> <span className="text-slate-800">{log.materiSetoran}</span></div>
+                                      <div><strong>Materi:</strong> <span className="text-slate-800">{log.kategori ? `[${log.kategori}] ` : ''}{log.materiSetoran}</span></div>
+                                      {log.evaluasiTahsin && (
+                                        <div className="text-slate-500 italic"><strong>Evaluasi / Keterangan:</strong> {log.evaluasiTahsin}</div>
+                                      )}
                                     </div>
                                   ))}
                                 </div>

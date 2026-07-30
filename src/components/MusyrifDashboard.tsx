@@ -522,6 +522,9 @@ export default function MusyrifDashboard({
             if (isTahfidzMode) {
               const katLabel = log.kategori || 'Setoran';
               text += `• *${katLabel}*: _${log.materiSetoran}_ (Nilai: *${labelNilai}*)\n`;
+              if (log.evaluasiTahsin && log.evaluasiTahsin.trim()) {
+                text += `  └ _Evaluasi: ${log.evaluasiTahsin}_\n`;
+              }
             } else {
               text += `• *Materi*: _${log.materiSetoran}_\n`;
               text += `• *Evaluasi*: _${log.evaluasiTahsin || '-'}\n`;
@@ -610,7 +613,7 @@ export default function MusyrifDashboard({
         const evaluasiCellHtml = sortedLogs.map((log, lIdx) => {
           const isLast = lIdx === sortedLogs.length - 1;
           const borderStyle = isLast ? '' : 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px; margin-bottom: 4px;';
-          const evalText = isTahfidzMode ? '-' : (log.evaluasiTahsin || '-');
+          const evalText = log.evaluasiTahsin || '-';
           return `<div style="${borderStyle}">${evalText}</div>`;
         }).join('');
 
@@ -919,7 +922,7 @@ export default function MusyrifDashboard({
           <td style="font-weight: 600; color: #0f766e;">
             ${categoryBadge}${log.materiSetoran}
           </td>
-          <td style="color: #475569; font-style: italic;">${isTahfidzLog ? '-' : (log.evaluasiTahsin || '-')}</td>
+          <td style="color: #475569; font-style: italic;">${log.evaluasiTahsin || '-'}</td>
           <td style="text-align: center;">
             <span class="nilai-badge nilai-${log.nilai}">${labelNilai}</span>
           </td>
@@ -2344,7 +2347,7 @@ export default function MusyrifDashboard({
                                       <div className="space-y-2">
                                         {sortedLogs.map((log, lIdx) => (
                                           <div key={log.id} className={`pb-1.5 text-slate-500 italic ${lIdx < sortedLogs.length - 1 ? 'border-b border-slate-150/70' : ''}`}>
-                                            {selectedProgram === 'tahfidz' ? '-' : (log.evaluasiTahsin || '-')}
+                                            {log.evaluasiTahsin || '-'}
                                           </div>
                                         ))}
                                       </div>
@@ -2738,7 +2741,7 @@ export default function MusyrifDashboard({
                   {lastEntryForKategori ? (
                     <div className="space-y-1">
                       <p className="font-bold text-slate-700">Materi: <span className="text-emerald-800 font-extrabold">{lastEntryForKategori.materiSetoran}</span></p>
-                      {!(lastEntryForKategori.program === 'tahfidz' || (lastEntryForKategori.program !== 'dasar' && !!lastEntryForKategori.kategori)) && (
+                      {lastEntryForKategori.evaluasiTahsin && (
                         <p className="text-slate-500 italic text-[11px] leading-relaxed">Eval: {lastEntryForKategori.evaluasiTahsin}</p>
                       )}
                       <div className="flex items-center gap-1.5 mt-1">
