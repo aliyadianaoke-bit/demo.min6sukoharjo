@@ -81,7 +81,7 @@ export default function App() {
   const [adminPass, setAdminPass] = useState('admin123'); // fallback default
   const [musyrifLoginEnabled, setMusyrifLoginEnabled] = useState(true);
 
-  // Inactivity tracking for auto logout (10 minutes = 600,000 ms)
+  // Inactivity tracking for auto logout (15 minutes = 900,000 ms)
   const lastActivityRef = React.useRef<number>(Date.now());
 
   const handleLogout = () => {
@@ -164,7 +164,7 @@ export default function App() {
     return () => clearInterval(checkInterval);
   }, [appState, currentUser, musyrifAttendances]);
 
-  // Auto Logout after 10 minutes of inactivity
+  // Auto Logout after 15 minutes of inactivity
   useEffect(() => {
     if (appState === 'home' || appState === 'loading') return;
 
@@ -180,11 +180,11 @@ export default function App() {
     });
 
     const inactivityCheckInterval = setInterval(() => {
-      const tenMinutesInMs = 10 * 60 * 1000;
+      const fifteenMinutesInMs = 15 * 60 * 1000;
       const inactiveDuration = Date.now() - lastActivityRef.current;
 
-      if (inactiveDuration >= tenMinutesInMs) {
-        alert('⚠️ Sesi Anda telah berakhir secara otomatis karena tidak ada aktivitas selama 10 menit.');
+      if (inactiveDuration >= fifteenMinutesInMs) {
+        alert('⚠️ Sesi Anda telah berakhir secara otomatis karena tidak ada aktivitas selama 15 menit.');
         handleLogout();
       }
     }, 5000);
