@@ -1128,9 +1128,11 @@ export default function AdminDashboard({
             margin-bottom: 20px;
           }
           .header-logo {
-            max-height: 65px;
-            max-width: 200px;
-            margin: 0 auto 8px auto;
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            max-height: 140px;
+            margin: 0 auto 10px auto;
             display: block;
             object-fit: contain;
           }
