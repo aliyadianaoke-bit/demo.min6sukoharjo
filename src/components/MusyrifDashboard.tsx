@@ -530,7 +530,7 @@ export default function MusyrifDashboard({
     const uniqueStudentsWithLogs = new Set(dailyRecapLogs.map(l => l.siswaId)).size;
 
     let text = `*REKAP HARIAN KELAS ${kelasNama.toUpperCase()} (${programLabel.toUpperCase()})*\n`;
-    text += `*Markaz Muhibbil Qur'an*\n\n`;
+    text += `*Program Mutiara Bangsa*\n\n`;
     text += `🏫 *Kelas / Program*: ${kelasNama} / ${programLabel}\n`;
     text += `👤 *Musyrif/ah*: Ustadz/ah ${userNama}\n`;
     text += `📅 *Tanggal*: ${formattedDate}\n`;
@@ -729,6 +729,13 @@ export default function MusyrifDashboard({
             padding-bottom: 12px;
             margin-bottom: 20px;
           }
+          .header-logo {
+            max-height: 65px;
+            max-width: 200px;
+            margin: 0 auto 8px auto;
+            display: block;
+            object-fit: contain;
+          }
           .header h1 {
             margin: 0;
             font-size: 20px;
@@ -849,7 +856,8 @@ export default function MusyrifDashboard({
       </head>
       <body>
         <div class="header">
-          <h1>MARKAZ MUHIBBIL QUR'AN</h1>
+          <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
+          <h1>PROGRAM MUTIARA BANGSA</h1>
           <h2>LAPORAN REKAP HARIAN SETORAN TAHFIDZ</h2>
           <p>Mencetak Generasi Qur'ani yang Berakhlaqul Karimah</p>
         </div>
@@ -991,6 +999,13 @@ export default function MusyrifDashboard({
             border-bottom: 3px double #0f766e;
             padding-bottom: 12px;
             margin-bottom: 20px;
+          }
+          .header-logo {
+            max-height: 65px;
+            max-width: 200px;
+            margin: 0 auto 8px auto;
+            display: block;
+            object-fit: contain;
           }
           .header h1 {
             margin: 0;
@@ -1138,7 +1153,8 @@ export default function MusyrifDashboard({
       </head>
       <body>
         <div class="header">
-          <h1>MARKAZ MUHIBBIL QUR'AN</h1>
+          <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
+          <h1>PROGRAM MUTIARA BANGSA</h1>
           <h2>LAPORAN REKAP BULANAN SETORAN TAHFIDZ</h2>
           <p>Mencetak Generasi Qur'ani yang Berakhlaqul Karimah</p>
         </div>

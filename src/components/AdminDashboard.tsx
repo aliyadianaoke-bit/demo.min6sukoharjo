@@ -1127,6 +1127,13 @@ export default function AdminDashboard({
             padding-bottom: 12px;
             margin-bottom: 20px;
           }
+          .header-logo {
+            max-height: 65px;
+            max-width: 200px;
+            margin: 0 auto 8px auto;
+            display: block;
+            object-fit: contain;
+          }
           .header h1 {
             margin: 0;
             font-size: 20px;
@@ -1308,7 +1315,8 @@ export default function AdminDashboard({
       </head>
       <body>
         <div class="header">
-          <h1>MARKAZ MUHIBBIL QUR'AN</h1>
+          <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
+          <h1>PROGRAM MUTIARA BANGSA</h1>
           <h2>LAPORAN PERKEMBANGAN TAHFIDZ SANTRI</h2>
           <p>Mencetak Generasi Qur'ani yang Berakhlaqul Karimah</p>
         </div>
