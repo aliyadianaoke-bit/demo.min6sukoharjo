@@ -1294,7 +1294,7 @@ export default function AdminDashboard({
             page-break-inside: avoid;
           }
           .sig-box {
-            width: 180px;
+            width: 220px;
             text-align: center;
           }
           .sig-line {
@@ -1309,11 +1309,11 @@ export default function AdminDashboard({
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            opacity: 0.3;
+            opacity: 0.22;
             z-index: 0;
             pointer-events: none;
-            width: 360px;
-            max-width: 75%;
+            width: 520px;
+            max-width: 85%;
             text-align: center;
           }
           .watermark img {
@@ -1377,8 +1377,8 @@ export default function AdminDashboard({
         <div class="footer-signature">
           <div class="sig-box">
             <div>Mengetahui,</div>
-            <div style="font-weight: 700; margin-top: 4px;">Pimpinan Markaz</div>
-            <div class="sig-line">__________________________</div>
+            <div style="font-weight: 700; margin-top: 4px;">Manager Pengajaran Team Qur'an</div>
+            <div class="sig-line">Ust. M. Ridwan Sam, S.Pd, M.Pd.</div>
           </div>
           <div class="sig-box">
             <div>Sukoharjo, ${formattedDate}</div>

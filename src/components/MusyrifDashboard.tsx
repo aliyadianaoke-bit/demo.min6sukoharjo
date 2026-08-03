@@ -835,7 +835,7 @@ export default function MusyrifDashboard({
             page-break-inside: avoid;
           }
           .sig-box {
-            width: 180px;
+            width: 220px;
             text-align: center;
           }
           .sig-line {
@@ -850,11 +850,11 @@ export default function MusyrifDashboard({
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            opacity: 0.3;
+            opacity: 0.22;
             z-index: 0;
             pointer-events: none;
-            width: 360px;
-            max-width: 75%;
+            width: 520px;
+            max-width: 85%;
             text-align: center;
           }
           .watermark img {
@@ -891,7 +891,7 @@ export default function MusyrifDashboard({
         <div class="meta-container">
           <div>
             <div class="meta-item"><strong>Kelas / Program</strong>: ${kelasNama} / ${programLabel}</div>
-            <div class="meta-item"><strong>Musyrif Pengampu</strong>: Ustadz/ah ${userNama}</div>
+            <div class="meta-item"><strong>Musyrif Pengampu</strong>: ${userNama}</div>
           </div>
           <div>
             <div class="meta-item"><strong>Tanggal Laporan</strong>: ${formattedDate}</div>
@@ -922,13 +922,13 @@ export default function MusyrifDashboard({
         <div class="footer-signature">
           <div class="sig-box">
             <div>Mengetahui,</div>
-            <div style="font-weight: 700; margin-top: 4px;">Pimpinan Markaz</div>
-            <div class="sig-line">__________________________</div>
+            <div style="font-weight: 700; margin-top: 4px;">Manager Pengajaran Team Qur'an</div>
+            <div class="sig-line">Ust. M. Ridwan Sam, S.Pd, M.Pd.</div>
           </div>
           <div class="sig-box">
             <div>Sukoharjo, ${formattedDate}</div>
             <div style="font-weight: 700; margin-top: 4px;">Musyrif Pengampu</div>
-            <div class="sig-line">Ustadz/ah ${userNama}</div>
+            <div class="sig-line">${userNama}</div>
           </div>
         </div>
       </body>
@@ -1158,7 +1158,7 @@ export default function MusyrifDashboard({
             page-break-inside: avoid;
           }
           .sig-box {
-            width: 180px;
+            width: 220px;
             text-align: center;
           }
           .sig-line {
@@ -1173,11 +1173,11 @@ export default function MusyrifDashboard({
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            opacity: 0.3;
+            opacity: 0.22;
             z-index: 0;
             pointer-events: none;
-            width: 360px;
-            max-width: 75%;
+            width: 520px;
+            max-width: 85%;
             text-align: center;
           }
           .watermark img {
@@ -1219,7 +1219,7 @@ export default function MusyrifDashboard({
           </div>
           <div>
             <div class="meta-item"><strong>Bulan / Tahun</strong>: ${bulanName} 2026</div>
-            <div class="meta-item"><strong>Musyrif Pengampu</strong>: Ustadz/ah ${userNama}</div>
+            <div class="meta-item"><strong>Musyrif Pengampu</strong>: ${userNama}</div>
             <div class="meta-item"><strong>Total Setoran</strong>: ${studentMonthlyLogs.length} Kali</div>
           </div>
         </div>
@@ -1269,13 +1269,13 @@ export default function MusyrifDashboard({
         <div class="footer-signature">
           <div class="sig-box">
             <div>Mengetahui,</div>
-            <div style="font-weight: 700; margin-top: 4px;">Pimpinan Markaz</div>
-            <div class="sig-line">__________________________</div>
+            <div style="font-weight: 700; margin-top: 4px;">Manager Pengajaran Team Qur'an</div>
+            <div class="sig-line">Ust. M. Ridwan Sam, S.Pd, M.Pd.</div>
           </div>
           <div class="sig-box">
             <div>Sukoharjo, ${bulanName} 2026</div>
             <div style="font-weight: 700; margin-top: 4px;">Musyrif Pengampu</div>
-            <div class="sig-line">Ustadz/ah ${userNama}</div>
+            <div class="sig-line">${userNama}</div>
           </div>
         </div>
       </body>
