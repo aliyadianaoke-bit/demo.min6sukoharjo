@@ -8,6 +8,7 @@ import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { 
   addAbsenMusyrif, 
   updateAbsenMusyrif, 
+  getAbsenMusyrif,
   addAbsenSiswa, 
   updateAbsenSiswa, 
   addJournal, 
@@ -16,7 +17,7 @@ import {
   getAbsenSiswa,
   subscribeToTable 
 } from '../lib/supabaseService';
-import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi, AbsenSiswa } from '../types';
+import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi, AbsenSiswa, AbsenMusyrif } from '../types';
 import AbsenSayaView from './AbsenSayaView';
 import AbsenCamera from './AbsenCamera';
 
@@ -94,6 +95,7 @@ export default function MusyrifDashboard({
   const [selectedKategori, setSelectedKategori] = useState<'Murojaah' | 'Ziyadah' | 'Setoran' | 'Tugas Tilawah' | null>(null);
 
   const [localStudentAttendances, setLocalStudentAttendances] = useState<AbsenSiswa[]>(studentAttendances || []);
+  const [localMusyrifAttendances, setLocalMusyrifAttendances] = useState<AbsenMusyrif[]>([]);
 
   useEffect(() => {
     if (studentAttendances) {
@@ -114,13 +116,32 @@ export default function MusyrifDashboard({
     }
   };
 
+  const loadMusyrifAttendance = async () => {
+    if (!userId) return;
+    try {
+      const list = await getAbsenMusyrif(userId, 100);
+      if (list) {
+        setLocalMusyrifAttendances(list);
+      }
+    } catch (err) {
+      console.warn('Notice syncing musyrif attendance:', err);
+    }
+  };
+
   useEffect(() => {
     if (!userId) return;
     loadStudentAttendance();
-    const unsub = subscribeToTable('absen_siswa', () => {
+    loadMusyrifAttendance();
+    const unsub1 = subscribeToTable('absen_siswa', () => {
       loadStudentAttendance();
     });
-    return () => unsub();
+    const unsub2 = subscribeToTable('absen_musyrif', () => {
+      loadMusyrifAttendance();
+    });
+    return () => {
+      unsub1();
+      unsub2();
+    };
   }, [userId]);
 
   // Retrieve the latest entry for this student and category (can be today or previous days, excluding the current editing doc)
@@ -134,16 +155,16 @@ export default function MusyrifDashboard({
     );
   }, [targetSiswa, selectedKategori, journals, editingJournalId]);
 
-  // Check today's attendance on mount using synchronized state (no Firestore read calls needed)
+  // Check today's attendance on mount using synchronized musyrif state
   useEffect(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    const hasAttendedToday = (localStudentAttendances || []).some(
-      a => a.musyrifId === userId && a.tanggal === todayStr
+    const hasAttendedToday = (localMusyrifAttendances || []).some(
+      a => String(a.musyrifId) === String(userId) && a.tanggal === todayStr
     );
     if (!hasAttendedToday) {
       setShowAutoAbsenModal(true);
     }
-  }, [userId, localStudentAttendances]);
+  }, [userId, localMusyrifAttendances]);
 
   // Automatically open Halaqoh Activation Modal if none is active when switching to Input or Absen Siswa tab
   useEffect(() => {
@@ -176,9 +197,9 @@ export default function MusyrifDashboard({
       const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
       const hariStr = days[now.getDay()];
 
-      // Check existing attendance from synchronized local state to save Firestore reads
-      const existingRecord = (localStudentAttendances || []).find(
-        a => a.musyrifId === userId && a.tanggal === tanggalStr
+      // Check existing attendance from synchronized local state
+      const existingRecord = (localMusyrifAttendances || []).find(
+        a => String(a.musyrifId) === String(userId) && a.tanggal === tanggalStr
       );
 
       if (existingRecord) {
@@ -203,6 +224,8 @@ export default function MusyrifDashboard({
         await addAbsenMusyrif(payload);
         showFeedback('Absensi kehadiran Anda berhasil disimpan!');
       }
+      await loadMusyrifAttendance();
+      await refreshData();
       setShowAutoAbsenModal(false);
     } catch (err: any) {
       console.warn('Notice saving automatic attendance:', err);

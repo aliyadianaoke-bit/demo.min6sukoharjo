@@ -42,35 +42,54 @@ let memoryStudents: Siswa[] = [
   { id: 'sis-6', noInduk: '1006', nama: 'Khadijah Al-Kubra', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-3', halaqohNama: 'Halaqoh At-Tin' }
 ];
 
-let memoryJournals: CatatanHarian[] = [
-  {
-    id: 'cat-1',
-    tanggal: '2026-06-18',
-    siswaId: 'sis-1',
-    siswaNama: 'Abdurrahman Wahid',
-    noInduk: '1001',
-    kelasNama: 'Kelas 1A',
-    halaqohId: 'hq-1',
-    materiSetoran: 'An-Naba 1-15',
-    evaluasiTahsin: 'Tahsin sangat lancar, perlu menjaga panjang pendek pada mad wajib.',
-    nilai: 'A'
-  },
-  {
-    id: 'cat-2',
-    tanggal: '2026-06-18',
-    siswaId: 'sis-2',
-    siswaNama: 'Aisyah Humaira',
-    noInduk: '1002',
-    kelasNama: 'Kelas 1A',
-    halaqohId: 'hq-1',
-    materiSetoran: 'An-Nazi\'at 1-20',
-    evaluasiTahsin: 'Hafalan agak terbata-bata di ayat 12-15, perlu muraja\'ah kembali.',
-    nilai: 'C'
-  }
-];
-
+const JOURNALS_KEY = 'mmq_journals_v3';
 const ABSEN_SISWA_KEY = 'mmq_absen_siswa_v2';
 const ABSEN_MUSYRIF_KEY = 'mmq_absen_musyrif_v2';
+
+function loadStoredJournals(): CatatanHarian[] {
+  try {
+    const raw = localStorage.getItem(JOURNALS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed loading stored journals:", e);
+  }
+  return [
+    {
+      id: 'cat-1',
+      tanggal: '2026-06-18',
+      siswaId: 'sis-1',
+      siswaNama: 'Abdurrahman Wahid',
+      noInduk: '1001',
+      kelasNama: 'Kelas 1A',
+      halaqohId: 'hq-1',
+      materiSetoran: 'An-Naba 1-15',
+      evaluasiTahsin: 'Tahsin sangat lancar, perlu menjaga panjang pendek pada mad wajib.',
+      nilai: 'A'
+    },
+    {
+      id: 'cat-2',
+      tanggal: '2026-06-18',
+      siswaId: 'sis-2',
+      siswaNama: 'Aisyah Humaira',
+      noInduk: '1002',
+      kelasNama: 'Kelas 1A',
+      halaqohId: 'hq-1',
+      materiSetoran: 'An-Nazi\'at 1-20',
+      evaluasiTahsin: 'Hafalan agak terbata-bata di ayat 12-15, perlu muraja\'ah kembali.',
+      nilai: 'C'
+    }
+  ];
+}
+
+function saveStoredJournals(data: CatatanHarian[]) {
+  try {
+    localStorage.setItem(JOURNALS_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed saving stored journals:", e);
+  }
+}
+
+let memoryJournals: CatatanHarian[] = loadStoredJournals();
 
 function loadStoredAbsenSiswa(): AbsenSiswa[] {
   try {
@@ -554,7 +573,7 @@ export function formatJournalFromDb(j: any): CatatanHarian {
 }
 
 // CATATAN HARIAN / JOURNALS
-export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
+export async function getJournals(limitNum = 200): Promise<CatatanHarian[]> {
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase
@@ -563,7 +582,16 @@ export async function getJournals(limitNum = 100): Promise<CatatanHarian[]> {
         .order('tanggal', { ascending: false })
         .limit(limitNum);
       if (!error && Array.isArray(data)) {
-        memoryJournals = data.map(j => formatJournalFromDb(j));
+        const formattedData = data.map(j => formatJournalFromDb(j));
+        const dataMap = new Map(formattedData.map(d => [d.id, d]));
+        const merged = [...formattedData];
+        for (const localItem of memoryJournals) {
+          if (!dataMap.has(localItem.id)) {
+            merged.push(localItem);
+          }
+        }
+        memoryJournals = merged;
+        saveStoredJournals(memoryJournals);
         return memoryJournals;
       } else if (error) {
         console.warn("Supabase getJournals error:", error.message || error);
@@ -592,6 +620,15 @@ export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<Catat
     evaluasiTahsin: evaluasi 
   };
 
+  const formatted = formatJournalFromDb(rawItem);
+  const existingIdx = memoryJournals.findIndex(j => j.id === formatted.id);
+  if (existingIdx >= 0) {
+    memoryJournals[existingIdx] = formatted;
+  } else {
+    memoryJournals.unshift(formatted);
+  }
+  saveStoredJournals(memoryJournals);
+
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('catatan_harian').insert(rawItem);
@@ -609,8 +646,6 @@ export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<Catat
     }
   }
 
-  const formatted = formatJournalFromDb(rawItem);
-  memoryJournals.unshift(formatted);
   return formatted;
 }
 
@@ -632,6 +667,14 @@ export async function updateJournal(id: string, item: Partial<CatatanHarian>): P
     ...(evaluasi ? { evaluasiTahsin: evaluasi } : {})
   };
 
+  memoryJournals = memoryJournals.map(j => {
+    if (j.id === id) {
+      return formatJournalFromDb({ ...j, ...rawUpdate });
+    }
+    return j;
+  });
+  saveStoredJournals(memoryJournals);
+
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('catatan_harian').update(rawUpdate).eq('id', id);
@@ -648,17 +691,11 @@ export async function updateJournal(id: string, item: Partial<CatatanHarian>): P
       console.warn("Failed updating journal in Supabase:", e);
     }
   }
-
-  memoryJournals = memoryJournals.map(j => {
-    if (j.id === id) {
-      return formatJournalFromDb({ ...j, ...rawUpdate });
-    }
-    return j;
-  });
 }
 
 export async function deleteJournal(id: string): Promise<void> {
   memoryJournals = memoryJournals.filter(j => j.id !== id);
+  saveStoredJournals(memoryJournals);
 
   if (isSupabaseConfigured()) {
     try {
