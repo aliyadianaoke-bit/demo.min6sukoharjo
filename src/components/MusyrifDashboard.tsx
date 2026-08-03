@@ -95,7 +95,15 @@ export default function MusyrifDashboard({
   const [selectedKategori, setSelectedKategori] = useState<'Murojaah' | 'Ziyadah' | 'Setoran' | 'Tugas Tilawah' | null>(null);
 
   const [localStudentAttendances, setLocalStudentAttendances] = useState<AbsenSiswa[]>(studentAttendances || []);
-  const [localMusyrifAttendances, setLocalMusyrifAttendances] = useState<AbsenMusyrif[]>([]);
+  const [localMusyrifAttendances, setLocalMusyrifAttendances] = useState<AbsenMusyrif[]>(() => {
+    try {
+      const raw = localStorage.getItem('mmq_absen_musyrif_v2');
+      if (raw) return JSON.parse(raw);
+    } catch (e) {
+      console.warn("Notice loading local musyrif attendances:", e);
+    }
+    return [];
+  });
 
   useEffect(() => {
     if (studentAttendances) {
@@ -157,12 +165,20 @@ export default function MusyrifDashboard({
 
   // Check today's attendance on mount using synchronized musyrif state
   useEffect(() => {
+    if (!userId) return;
     const todayStr = new Date().toISOString().split('T')[0];
     const hasAttendedToday = (localMusyrifAttendances || []).some(
       a => String(a.musyrifId) === String(userId) && a.tanggal === todayStr
     );
-    if (!hasAttendedToday) {
-      setShowAutoAbsenModal(true);
+    if (hasAttendedToday) {
+      setShowAutoAbsenModal(false);
+    } else {
+      const dismissedKey = `dismissed_absen_${userId}_${todayStr}`;
+      if (!sessionStorage.getItem(dismissedKey)) {
+        setShowAutoAbsenModal(true);
+      } else {
+        setShowAutoAbsenModal(false);
+      }
     }
   }, [userId, localMusyrifAttendances]);
 
@@ -226,6 +242,7 @@ export default function MusyrifDashboard({
       }
       await loadMusyrifAttendance();
       await refreshData();
+      sessionStorage.setItem(`dismissed_absen_${userId}_${tanggalStr}`, 'true');
       setShowAutoAbsenModal(false);
     } catch (err: any) {
       console.warn('Notice saving automatic attendance:', err);
@@ -2714,7 +2731,11 @@ export default function MusyrifDashboard({
             ) : (
               <AbsenCamera
                 onCapture={handleAutoCapture}
-                onCancel={() => setShowAutoAbsenModal(false)}
+                onCancel={() => {
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  sessionStorage.setItem(`dismissed_absen_${userId}_${todayStr}`, 'true');
+                  setShowAutoAbsenModal(false);
+                }}
               />
             )}
           </div>
