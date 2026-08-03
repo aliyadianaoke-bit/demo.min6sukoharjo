@@ -843,6 +843,27 @@ export default function MusyrifDashboard({
             font-weight: 700;
             color: #1e293b;
           }
+          .watermark {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.3;
+            z-index: 0;
+            pointer-events: none;
+            width: 360px;
+            max-width: 75%;
+            text-align: center;
+          }
+          .watermark img {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+          }
+          .header, .meta-container, table, .summary-box, .footer-signature {
+            position: relative;
+            z-index: 1;
+          }
           @media print {
             body {
               padding: 0;
@@ -855,6 +876,9 @@ export default function MusyrifDashboard({
         </style>
       </head>
       <body>
+        <div class="watermark">
+          <img src="https://lh3.googleusercontent.com/d/1651wKNM5H8EGuDrdBiA82bNKuCE3es0d" alt="Watermark" />
+        </div>
         <div class="header">
           <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
           <h1>PROGRAM MUTIARA BANGSA</h1>
@@ -1140,6 +1164,27 @@ export default function MusyrifDashboard({
             font-weight: 700;
             color: #1e293b;
           }
+          .watermark {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.3;
+            z-index: 0;
+            pointer-events: none;
+            width: 360px;
+            max-width: 75%;
+            text-align: center;
+          }
+          .watermark img {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+          }
+          .header, .meta-container, table, .summary-box, .footer-signature {
+            position: relative;
+            z-index: 1;
+          }
           @media print {
             body {
               padding: 0;
@@ -1152,6 +1197,9 @@ export default function MusyrifDashboard({
         </style>
       </head>
       <body>
+        <div class="watermark">
+          <img src="https://lh3.googleusercontent.com/d/1651wKNM5H8EGuDrdBiA82bNKuCE3es0d" alt="Watermark" />
+        </div>
         <div class="header">
           <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
           <h1>PROGRAM MUTIARA BANGSA</h1>
