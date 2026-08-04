@@ -343,7 +343,6 @@ export default function App() {
           students={students}
           halaqohs={halaqohs}
           journals={journals}
-          musyrifs={musyrifs}
           studentAttendances={studentAttendances}
           refreshData={refreshAllData}
         />
