@@ -341,6 +341,7 @@ export default function App() {
           userNama={currentUser.nama}
           classes={classes}
           students={students}
+          musyrifs={musyrifs}
           halaqohs={halaqohs}
           journals={journals}
           studentAttendances={studentAttendances}

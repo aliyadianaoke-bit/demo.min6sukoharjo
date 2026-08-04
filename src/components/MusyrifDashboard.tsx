@@ -17,7 +17,7 @@ import {
   getAbsenSiswa,
   subscribeToTable 
 } from '../lib/supabaseService';
-import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi, AbsenSiswa, AbsenMusyrif } from '../types';
+import { Kelas, Siswa, Halaqoh, Musyrif, CatatanHarian, NilaiEvaluasi, AbsenSiswa, AbsenMusyrif } from '../types';
 import AbsenSayaView from './AbsenSayaView';
 import AbsenCamera from './AbsenCamera';
 
@@ -27,6 +27,7 @@ interface MusyrifDashboardProps {
   userNama: string;
   classes: Kelas[];
   students: Siswa[];
+  musyrifs?: Musyrif[];
   halaqohs: Halaqoh[];
   journals: CatatanHarian[];
   studentAttendances?: AbsenSiswa[];
@@ -39,6 +40,7 @@ export default function MusyrifDashboard({
   userNama,
   classes,
   students,
+  musyrifs = [],
   halaqohs,
   journals,
   studentAttendances = [],
@@ -50,16 +52,40 @@ export default function MusyrifDashboard({
   const [showAutoAbsenModal, setShowAutoAbsenModal] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
 
+  // Find logged-in Musyrif profile object for deep relationship matching
+  const currentMusyrif = useMemo(() => {
+    return musyrifs.find(m => 
+      String(m.id) === String(userId) || 
+      m.username === userId || 
+      (m.nama && userNama && m.nama.trim().toLowerCase() === userNama.trim().toLowerCase())
+    );
+  }, [musyrifs, userId, userNama]);
 
-  // Filter halaqohs to only those managed by the current Musyrif (supports multiple Musyrifs)
+  // Filter halaqohs to only those managed by the current Musyrif (robust multi-field fallback)
   const myHalaqohs = useMemo(() => {
-    return halaqohs.filter(h => h.musyrifId === userId || (h.musyrifIds && h.musyrifIds.includes(userId)));
-  }, [halaqohs, userId]);
+    return halaqohs.filter(h => {
+      // 1. Direct ID or array match
+      if (String(h.musyrifId) === String(userId)) return true;
+      if (currentMusyrif && String(h.musyrifId) === String(currentMusyrif.id)) return true;
+      if (h.musyrifIds && (h.musyrifIds.includes(userId) || (currentMusyrif && h.musyrifIds.includes(currentMusyrif.id)))) return true;
+      
+      // 2. Musyrif assigned halaqohId or halaqohNama match
+      if (currentMusyrif?.halaqohId && String(h.id) === String(currentMusyrif.halaqohId)) return true;
+      if (currentMusyrif?.halaqohNama && h.nama && currentMusyrif.halaqohNama.trim().toLowerCase() === h.nama.trim().toLowerCase()) return true;
+
+      // 3. Name or credential match
+      if (h.musyrifNama && userNama && (h.musyrifNama.trim().toLowerCase() === userNama.trim().toLowerCase() || userNama.trim().toLowerCase().includes(h.musyrifNama.trim().toLowerCase()))) return true;
+      if (currentMusyrif && h.musyrifNama && (h.musyrifNama.trim().toLowerCase() === currentMusyrif.nama.trim().toLowerCase() || currentMusyrif.nama.trim().toLowerCase().includes(h.musyrifNama.trim().toLowerCase()))) return true;
+      if (currentMusyrif && h.musyrifId && (h.musyrifId === currentMusyrif.username || h.musyrifId === currentMusyrif.nim)) return true;
+
+      return false;
+    });
+  }, [halaqohs, userId, userNama, currentMusyrif]);
 
   // Auto-find Musyrif's assigned halaqoh (if any) as initial value
   const assignedHalaqoh = useMemo(() => {
-    return halaqohs.find(h => h.musyrifId === userId || (h.musyrifIds && h.musyrifIds.includes(userId)));
-  }, [halaqohs, userId]);
+    return myHalaqohs[0] || halaqohs.find(h => String(h.musyrifId) === String(userId));
+  }, [myHalaqohs, halaqohs, userId]);
   const initialHalaqohId = assignedHalaqoh?.id || myHalaqohs[0]?.id || '';
 
   // Stable first halaqoh id for effect dependencies
@@ -1310,48 +1336,62 @@ export default function MusyrifDashboard({
   };
 
   // All students belonging to this Musyrif's managed halaqohs (filtered to selected halaqoh if active)
-  const myStudents = students
-    .filter(s => {
-      if (selectedHalaqohId) {
-        return s.halaqohId === selectedHalaqohId;
-      }
-      return myHalaqohs.some(h => h.id === s.halaqohId);
-    })
-    .sort((a, b) => {
-      const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
-      if (classCompare !== 0) {
-        return classSortOrder === 'asc' ? classCompare : -classCompare;
-      }
-      return (a.nama || '').localeCompare(b.nama || '', 'id');
-    });
+  const myStudents = useMemo(() => {
+    return students
+      .filter(s => {
+        if (selectedHalaqohId) {
+          if (String(s.halaqohId) === String(selectedHalaqohId)) return true;
+          const targetHq = halaqohs.find(h => String(h.id) === String(selectedHalaqohId));
+          if (targetHq && s.halaqohNama && s.halaqohNama.trim().toLowerCase() === targetHq.nama.trim().toLowerCase()) return true;
+          return false;
+        }
+
+        if (myHalaqohs.length > 0) {
+          return myHalaqohs.some(h => 
+            String(s.halaqohId) === String(h.id) || 
+            (s.halaqohNama && h.nama && s.halaqohNama.trim().toLowerCase() === h.nama.trim().toLowerCase())
+          );
+        }
+
+        if (currentMusyrif?.halaqohId && String(s.halaqohId) === String(currentMusyrif.halaqohId)) return true;
+        if (currentMusyrif?.halaqohNama && s.halaqohNama && s.halaqohNama.trim().toLowerCase() === currentMusyrif.halaqohNama.trim().toLowerCase()) return true;
+
+        // Fallback: If no halaqoh binding exists, include student so data doesn't disappear
+        return true;
+      })
+      .sort((a, b) => {
+        const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
+        if (classCompare !== 0) {
+          return classSortOrder === 'asc' ? classCompare : -classCompare;
+        }
+        return (a.nama || '').localeCompare(b.nama || '', 'id');
+      });
+  }, [students, selectedHalaqohId, myHalaqohs, halaqohs, currentMusyrif, classSortOrder]);
 
   // Filter students based on selected Class and Program
-  const inputTabStudents = myStudents.filter(s => {
-    // Check program first
-    if (selectedProgram === 'dasar') {
-      if (!(s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz))) return false;
-    } else if (selectedProgram === 'tahfidz') {
-      if (s.isKelasTahfidz !== true) return false;
-    } else {
-      return false; // If no program is selected, show nothing
-    }
-
-    // Check class filter (only if selected)
-    if (selectedKelasId && s.kelasId !== selectedKelasId) return false;
-
-    // Check search term
-    if (searchSiswa.trim()) {
-      const term = searchSiswa.toLowerCase();
-      if (!(s.nama.toLowerCase().includes(term) || (s.noInduk && s.noInduk.toLowerCase().includes(term)))) {
-        return false;
+  const inputTabStudents = useMemo(() => {
+    return myStudents.filter(s => {
+      // Check program
+      if (selectedProgram === 'dasar') {
+        if (!(s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz))) return false;
+      } else if (selectedProgram === 'tahfidz') {
+        if (!(s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz))) return false;
       }
-    } else if (!selectedKelasId) {
-      // If no class is selected and search is empty, don't show to prevent loading too much data
-      return false;
-    }
 
-    return true;
-  });
+      // Check class filter (only if selected)
+      if (selectedKelasId && String(s.kelasId) !== String(selectedKelasId) && s.kelasNama !== selectedKelasId) return false;
+
+      // Check search term
+      if (searchSiswa.trim()) {
+        const term = searchSiswa.toLowerCase();
+        if (!(s.nama.toLowerCase().includes(term) || (s.noInduk && s.noInduk.toLowerCase().includes(term)) || (s.kelasNama && s.kelasNama.toLowerCase().includes(term)))) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [myStudents, selectedProgram, selectedKelasId, searchSiswa]);
 
   // Filter journals for "Rekap Harian" based on class, program, and date
   const dailyRecapLogs = journals.filter(j => {
@@ -1362,7 +1402,7 @@ export default function MusyrifDashboard({
     if (!s) return false;
 
     // Filter by selected Class
-    if (String(s.kelasId) !== String(selectedKelasId)) return false;
+    if (selectedKelasId && String(s.kelasId) !== String(selectedKelasId) && s.kelasNama !== selectedKelasId) return false;
 
     // Filter by selected Program
     if (selectedProgram === 'dasar') {
@@ -1371,24 +1411,31 @@ export default function MusyrifDashboard({
       return j.program === 'dasar' || (j.program !== 'tahfidz' && !j.kategori);
     }
     if (selectedProgram === 'tahfidz') {
-      const isStudentMatch = s.isKelasTahfidz === true;
+      const isStudentMatch = s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz);
       if (!isStudentMatch) return false;
       return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
     }
     return false;
   });
 
-  // All students belonging to the selected class and program (full class list, e.g. 35 students)
-  const rekapKelasStudents = students.filter(s => {
-    if (String(s.kelasId) !== String(selectedKelasId)) return false;
-    if (selectedProgram === 'dasar') {
-      return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
-    }
-    if (selectedProgram === 'tahfidz') {
-      return s.isKelasTahfidz === true;
-    }
-    return false;
-  }).sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+  // All students belonging to the selected class/program or defaulting to myStudents
+  const rekapKelasStudents = useMemo(() => {
+    return students.filter(s => {
+      if (selectedKelasId && String(s.kelasId) !== String(selectedKelasId) && s.kelasNama !== selectedKelasId) {
+        return false;
+      }
+      if (!selectedKelasId) {
+        if (myStudents.length > 0 && !myStudents.some(ms => ms.id === s.id)) return false;
+      }
+      if (selectedProgram === 'dasar') {
+        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+      }
+      if (selectedProgram === 'tahfidz') {
+        return s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+      }
+      return true;
+    }).sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+  }, [students, selectedKelasId, myStudents, selectedProgram]);
 
   // Students available for selection in "Rekap Bulanan" & "Rekap Harian"
   const selectBulanStudents = rekapKelasStudents;
@@ -2045,15 +2092,11 @@ export default function MusyrifDashboard({
                           <span className="text-[10px] text-slate-400 font-semibold italic">Tampilan Mobile-Friendly Card</span>
                         </div>
 
-                        {!selectedKelasId && !searchSiswa.trim() ? (
-                          <div className="p-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
-                            Silakan pilih Kelas atau ketik di kolom pencarian langsung di atas untuk menampilkan data santri.
-                          </div>
-                        ) : inputTabStudents.length === 0 ? (
+                        {inputTabStudents.length === 0 ? (
                           <div className="p-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
                             {searchSiswa.trim() 
                               ? `Tidak ditemukan santri dengan nama atau nomor induk "${searchSiswa}".`
-                              : "Tidak ada santri yang terdaftar dalam program ini di Halaqoh terpilih."}
+                              : "Tidak ada santri yang terdaftar dalam program/filter ini di Halaqoh terpilih."}
                           </div>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2580,7 +2623,7 @@ export default function MusyrifDashboard({
                   <select
                     value={selectedBulanSiswaId}
                     onChange={(e) => setSelectedBulanSiswaId(e.target.value)}
-                    disabled={!selectedKelasId || !selectedProgram}
+                    disabled={selectBulanStudents.length === 0 || !selectedProgram}
                     className="w-full px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 font-bold text-slate-800"
                   >
                     <option value="">-- Pilih Siswa --</option>
