@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar, CheckCircle, Award, BookMarked, FileText, BarChart2, Plus, Edit2, 
   Trash2, LogOut, ChevronRight, Filter, AlertCircle, Sparkles, Smile, Info, BookOpen,
-  Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search, ArrowUpDown
+  Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search, ArrowUpDown,
+  Eye, ArrowLeft, Users
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { 
@@ -1452,6 +1453,165 @@ export default function MusyrifDashboard({
     }
   });
 
+  // Class Monthly Recap calculation for all students in the selected class & program
+  const classMonthlyRecap = useMemo(() => {
+    const prefix = `2026-${selectedBulanMonth}`;
+    return rekapKelasStudents.map(siswa => {
+      const sLogs = journals.filter(j => {
+        if (String(j.siswaId) !== String(siswa.id) || !j.tanggal.startsWith(prefix)) return false;
+        if (selectedProgram === 'tahfidz') {
+          return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
+        } else if (selectedProgram === 'dasar') {
+          return j.program === 'dasar' || (j.program !== 'tahfidz' && !j.kategori);
+        }
+        return true;
+      }).sort((a, b) => {
+        const d = a.tanggal.localeCompare(b.tanggal);
+        if (d !== 0) return d;
+        return String(a.id).localeCompare(String(b.id));
+      });
+
+      const totalSetoran = sLogs.length;
+      const setoranAwal = totalSetoran > 0 ? sLogs[0] : null;
+      const setoranAkhir = totalSetoran > 0 ? sLogs[totalSetoran - 1] : null;
+
+      return {
+        siswa,
+        sLogs,
+        totalSetoran,
+        setoranAwal,
+        setoranAkhir
+      };
+    });
+  }, [rekapKelasStudents, journals, selectedBulanMonth, selectedProgram]);
+
+  // Printable PDF function for Class Monthly Recap
+  const handleCetakPDFBulananKelas = () => {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (!iframeDoc) return;
+
+    const selectedClass = classes.find(c => String(c.id) === String(selectedKelasId));
+    const kelasNamaStr = selectedClass ? selectedClass.nama : 'Semua Kelas';
+    const programNamaStr = selectedProgram === 'tahfidz' ? 'Tahfidz Qur\'an' : 'Program Dasar';
+    const monthNames: Record<string, string> = {
+      '01': 'Januari', '02': 'Februari', '03': 'Maret', '04': 'April',
+      '05': 'Mei', '06': 'Juni', '07': 'Juli', '08': 'Agustus',
+      '09': 'September', '10': 'Oktober', '11': 'November', '12': 'Desember'
+    };
+    const bulanName = monthNames[selectedBulanMonth] || selectedBulanMonth;
+
+    const totalStudents = classMonthlyRecap.length;
+    const totalSetoranKelas = classMonthlyRecap.reduce((acc, curr) => acc + curr.totalSetoran, 0);
+
+    const tableRowsHtml = classMonthlyRecap.map((item, idx) => {
+      const awalStr = item.setoranAwal 
+        ? `${item.setoranAwal.tanggal.split('-').reverse().slice(0,2).join('/')} - ${item.setoranAwal.kategori ? `[${item.setoranAwal.kategori}] ` : ''}${item.setoranAwal.materiSetoran}` 
+        : '-';
+      const akhirStr = item.setoranAkhir 
+        ? `${item.setoranAkhir.tanggal.split('-').reverse().slice(0,2).join('/')} - ${item.setoranAkhir.kategori ? `[${item.setoranAkhir.kategori}] ` : ''}${item.setoranAkhir.materiSetoran}` 
+        : '-';
+
+      return `
+        <tr>
+          <td style="text-align: center; font-weight: bold;">${idx + 1}</td>
+          <td style="text-align: center;">${item.siswa.noInduk || '-'}</td>
+          <td style="font-weight: bold; text-transform: uppercase;">${item.siswa.nama}</td>
+          <td style="text-align: center; font-weight: bold; color: #065f46;">${item.totalSetoran} Kali</td>
+          <td>${awalStr}</td>
+          <td>${akhirStr}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Rekap Bulanan Kelas - ${kelasNamaStr}</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; color: #1e293b; font-size: 11px; }
+          .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f766e; padding-bottom: 12px; }
+          .header h1 { margin: 0; font-size: 16px; color: #0f766e; font-weight: 800; text-transform: uppercase; }
+          .header h2 { margin: 4px 0 0 0; font-size: 13px; color: #334155; font-weight: 700; }
+          .meta-container { display: flex; justify-content: space-between; margin-bottom: 15px; background: #f8fafc; padding: 10px 14px; border-radius: 6px; border: 1px solid #e2e8f0; }
+          .meta-item { margin-bottom: 3px; font-size: 11px; }
+          .report-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
+          .report-table th, .report-table td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
+          .report-table th { background-color: #f1f5f9; color: #0f766e; font-weight: 700; text-transform: uppercase; font-size: 9px; }
+          .report-table tr:nth-child(even) { background-color: #f8fafc; }
+          .footer-signature { display: flex; justify-content: space-between; margin-top: 30px; font-size: 11px; page-break-inside: avoid; }
+          .sig-box { width: 200px; text-align: center; }
+          .sig-line { margin-top: 45px; border-top: 1px solid #475569; padding-top: 4px; font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>PROGRAM MUTIARA BANGSA</h1>
+          <h2>REKAPAN BULANAN SETORAN PER KELAS (${programNamaStr.toUpperCase()})</h2>
+        </div>
+        <div class="meta-container">
+          <div>
+            <div class="meta-item"><strong>Kelas</strong>: ${kelasNamaStr}</div>
+            <div class="meta-item"><strong>Program</strong>: ${programNamaStr}</div>
+            <div class="meta-item"><strong>Musyrif Pengampu</strong>: ${userNama}</div>
+          </div>
+          <div>
+            <div class="meta-item"><strong>Bulan / Tahun</strong>: ${bulanName} 2026</div>
+            <div class="meta-item"><strong>Total Santri</strong>: ${totalStudents} Orang</div>
+            <div class="meta-item"><strong>Total Setoran Kelas</strong>: ${totalSetoranKelas} Kali</div>
+          </div>
+        </div>
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th style="width: 4%; text-align: center;">No</th>
+              <th style="width: 12%; text-align: center;">No. Induk</th>
+              <th style="width: 22%; text-align: left;">Nama Santri</th>
+              <th style="width: 12%; text-align: center;">Jumlah Setoran</th>
+              <th style="width: 25%; text-align: left;">Setoran Awal Bulan</th>
+              <th style="width: 25%; text-align: left;">Setoran Akhir Bulan</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml.length === 0 ? `<tr><td colspan="6" style="text-align:center; padding: 15px; color:#94a3b8;">Tidak ada data santri untuk filter ini.</td></tr>` : tableRowsHtml}
+          </tbody>
+        </table>
+        <div class="footer-signature">
+          <div class="sig-box">
+            <div>Mengetahui,</div>
+            <div style="font-weight: 700; margin-top: 4px;">Manager Pengajaran Team Qur'an</div>
+            <div class="sig-line">Ust. M. Ridwan Sam, S.Pd, M.Pd.</div>
+          </div>
+          <div class="sig-box">
+            <div>Sukoharjo, ${bulanName} 2026</div>
+            <div style="font-weight: 700; margin-top: 4px;">Musyrif Pengampu</div>
+            <div class="sig-line">${userNama}</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    iframeDoc.open();
+    iframeDoc.write(htmlContent);
+    iframeDoc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 5000);
+    }, 500);
+  };
+
   const getNilaiBadgeClass = (val: NilaiEvaluasi) => {
     switch(val) {
       case 'A': return 'bg-emerald-100 text-emerald-800';
@@ -2580,10 +2740,10 @@ export default function MusyrifDashboard({
             <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-black text-slate-800">Laporan Rekap Bulanan Siswa</h3>
-                <p className="text-xs text-slate-500">Melihat performa, tingkat keaktifan, dan rekam materi setoran per individu siswa per bulan</p>
+                <p className="text-xs text-slate-500">Melihat performa, rekap setoran per kelas (jumlah setoran, setoran awal & setoran akhir bulan), serta detail riwayat harian per santri</p>
               </div>
 
-              {/* Filters Block - Diluar atas border */}
+              {/* Filters Block */}
               <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 block uppercase">1. Pilih Kelas :</label>
@@ -2595,7 +2755,7 @@ export default function MusyrifDashboard({
                     }}
                     className="w-full px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
                   >
-                    <option value="">-- Pilih Kelas --</option>
+                    <option value="">-- Semua Kelas --</option>
                     {classes.map(c => (
                       <option key={c.id} value={c.id}>{c.nama}</option>
                     ))}
@@ -2619,14 +2779,14 @@ export default function MusyrifDashboard({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 block uppercase">3. Pilih Siswa :</label>
+                  <label className="text-[10px] font-bold text-slate-500 block uppercase">3. Pilih Santri (Opsional) :</label>
                   <select
                     value={selectedBulanSiswaId}
                     onChange={(e) => setSelectedBulanSiswaId(e.target.value)}
                     disabled={selectBulanStudents.length === 0 || !selectedProgram}
                     className="w-full px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 font-bold text-slate-800"
                   >
-                    <option value="">-- Pilih Siswa --</option>
+                    <option value="">-- Rekapan Per Kelas (Semua Santri) --</option>
                     {selectBulanStudents.map(s => (
                       <option key={s.id} value={s.id}>{s.nama} ({s.noInduk})</option>
                     ))}
@@ -2657,8 +2817,32 @@ export default function MusyrifDashboard({
               </div>
 
               <div className="bg-white border border-slate-150 p-6 rounded-3xl shadow-xs">
-                {selectedBulanSiswaId ? (
+                {!selectedProgram ? (
+                  <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs">
+                    Silahkan pilih Program (Dasar / Tahfidz) dan Bulan di atas untuk memuat laporan bulanan.
+                  </div>
+                ) : selectedBulanSiswaId ? (
+                  /* INDIVIDUAL STUDENT DETAIL VIEW */
                   <div className="space-y-6">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <button
+                        onClick={() => setSelectedBulanSiswaId('')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Kembali ke Rekapan Bulanan Per Kelas</span>
+                      </button>
+
+                      <div className="text-right">
+                        <div className="text-xs font-bold text-slate-800 uppercase">
+                          {selectBulanStudents.find(s => String(s.id) === String(selectedBulanSiswaId))?.nama}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          NIS: {selectBulanStudents.find(s => String(s.id) === String(selectedBulanSiswaId))?.noInduk || '-'}
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Monthly Summary Statistics Cards */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                       <div className="p-4 bg-emerald-50/70 border border-emerald-100 rounded-2xl">
@@ -2702,7 +2886,7 @@ export default function MusyrifDashboard({
                           title="Cetak Rekap Bulanan ke PDF"
                         >
                           <Printer className="w-3.5 h-3.5" />
-                          <span>Cetak PDF</span>
+                          <span>Cetak PDF Santri</span>
                         </button>
                       </div>
 
@@ -2712,7 +2896,7 @@ export default function MusyrifDashboard({
                         </div>
                       ) : (
                         <div className="space-y-3">
-                          {studentMonthlyLogs.map((log, index) => (
+                          {studentMonthlyLogs.map((log) => (
                             <div key={log.id} className="p-4 bg-white border border-slate-150 rounded-2xl shadow-xs space-y-2">
                               <div className="flex items-center justify-between border-b border-slate-50 pb-2">
                                 <span className="text-[11px] font-mono font-bold text-slate-500">
@@ -2739,8 +2923,154 @@ export default function MusyrifDashboard({
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs">
-                    Silahkan pilih Kelas, Program, dan Siswa di atas untuk memuat laporan bulanan.
+                  /* CLASS MONTHLY RECAP TABLE (REKAPAN BULANAN PER KELAS) */
+                  <div className="space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                      <div>
+                        <h4 className="text-base font-black text-slate-800 flex items-center gap-2">
+                          <Users className="w-5 h-5 text-emerald-600" />
+                          <span>Rekapan Bulanan Per Kelas</span>
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Menampilkan rekapitulasi jumlah setoran, setoran awal bulan, dan setoran akhir bulan seluruh santri.
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={handleCetakPDFBulananKelas}
+                        disabled={classMonthlyRecap.length === 0}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer self-start sm:self-auto"
+                      >
+                        <Printer className="w-4 h-4" />
+                        <span>Cetak PDF Rekap Kelas</span>
+                      </button>
+                    </div>
+
+                    {/* Quick Stats for the whole class */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Total Santri</div>
+                          <div className="text-2xl font-black text-emerald-950 mt-0.5">{classMonthlyRecap.length} Orang</div>
+                        </div>
+                        <Users className="w-8 h-8 text-emerald-400 opacity-60" />
+                      </div>
+
+                      <div className="p-4 bg-indigo-50/60 border border-indigo-100 rounded-2xl flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Total Setoran Kelas</div>
+                          <div className="text-2xl font-black text-indigo-950 mt-0.5">
+                            {classMonthlyRecap.reduce((a, c) => a + c.totalSetoran, 0)} Kali
+                          </div>
+                        </div>
+                        <BookMarked className="w-8 h-8 text-indigo-400 opacity-60" />
+                      </div>
+
+                      <div className="p-4 bg-sky-50/60 border border-sky-100 rounded-2xl flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] font-bold text-sky-700 uppercase tracking-wider">Santri Aktif Setoran</div>
+                          <div className="text-2xl font-black text-sky-950 mt-0.5">
+                            {classMonthlyRecap.filter(c => c.totalSetoran > 0).length} Orang
+                          </div>
+                        </div>
+                        <TrendingUp className="w-8 h-8 text-sky-400 opacity-60" />
+                      </div>
+                    </div>
+
+                    {/* CLASS MONTHLY RECAP TABLE */}
+                    {classMonthlyRecap.length === 0 ? (
+                      <div className="p-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                        Tidak ada data santri ditemukan pada kelas dan program ini.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-2xs">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100/80 text-slate-700 uppercase font-extrabold text-[10px] tracking-wider border-b border-slate-200">
+                              <th className="py-3 px-3.5 text-center w-12">No</th>
+                              <th className="py-3 px-3.5 text-center w-24">No. Induk</th>
+                              <th className="py-3 px-4 min-w-[160px]">Nama Santri</th>
+                              <th className="py-3 px-3.5 text-center min-w-[110px]">Jumlah Setoran</th>
+                              <th className="py-3 px-4 min-w-[220px]">Setoran Awal Bulan</th>
+                              <th className="py-3 px-4 min-w-[220px]">Setoran Akhir Bulan</th>
+                              <th className="py-3 px-3.5 text-center w-20">Aksi</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-150 bg-white">
+                            {classMonthlyRecap.map((item, index) => (
+                              <tr key={item.siswa.id} className="hover:bg-slate-50/80 transition">
+                                <td className="py-3 px-3.5 text-center font-mono font-bold text-slate-400">
+                                  {index + 1}
+                                </td>
+                                <td className="py-3 px-3.5 text-center font-mono text-slate-500 font-semibold">
+                                  {item.siswa.noInduk || '-'}
+                                </td>
+                                <td className="py-3 px-4 font-bold text-slate-900 uppercase">
+                                  {item.siswa.nama}
+                                </td>
+                                <td className="py-3 px-3.5 text-center">
+                                  <span className={`inline-block px-2.5 py-1 rounded-lg font-black text-xs ${
+                                    item.totalSetoran > 0 
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                      : 'bg-slate-100 text-slate-400'
+                                  }`}>
+                                    {item.totalSetoran} Kali
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 align-top">
+                                  {item.setoranAwal ? (
+                                    <div className="space-y-1">
+                                      <div className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                        📅 {item.setoranAwal.tanggal.split('-').reverse().join('/')}
+                                      </div>
+                                      <div className="font-bold text-slate-800 text-xs">
+                                        {item.setoranAwal.kategori && (
+                                          <span className="text-[10px] font-extrabold uppercase text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded mr-1">
+                                            {item.setoranAwal.kategori}
+                                          </span>
+                                        )}
+                                        {item.setoranAwal.materiSetoran}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400 italic text-[11px]">- Belum ada -</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 align-top">
+                                  {item.setoranAkhir ? (
+                                    <div className="space-y-1">
+                                      <div className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                                        📅 {item.setoranAkhir.tanggal.split('-').reverse().join('/')}
+                                      </div>
+                                      <div className="font-bold text-slate-800 text-xs">
+                                        {item.setoranAkhir.kategori && (
+                                          <span className="text-[10px] font-extrabold uppercase text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded mr-1">
+                                            {item.setoranAkhir.kategori}
+                                          </span>
+                                        )}
+                                        {item.setoranAkhir.materiSetoran}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400 italic text-[11px]">- Belum ada -</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-3.5 text-center">
+                                  <button
+                                    onClick={() => setSelectedBulanSiswaId(item.siswa.id)}
+                                    className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg font-bold text-xs inline-flex items-center gap-1 transition cursor-pointer"
+                                    title="Lihat Detail Riwayat Santri"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span className="hidden lg:inline text-[10px]">Detail</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
