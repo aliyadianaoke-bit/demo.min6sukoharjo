@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Calendar, CheckCircle, Award, BookMarked, FileText, BarChart2, Plus, Edit2, 
   Trash2, LogOut, ChevronRight, Filter, AlertCircle, Sparkles, Smile, Info, BookOpen,
-  Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search, ArrowUpDown
+  Printer, Share2, TrendingUp, Camera, UserCheck, Clock, RefreshCw, Search, ArrowUpDown,
+  Save, Check, FileSpreadsheet, ListChecks
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { 
@@ -15,9 +16,12 @@ import {
   updateJournal, 
   deleteJournal, 
   getAbsenSiswa,
-  subscribeToTable 
+  subscribeToTable,
+  getCapaianBulanan,
+  saveCapaianBulananItem,
+  saveBulkCapaianBulanan
 } from '../lib/supabaseService';
-import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi, AbsenSiswa, AbsenMusyrif } from '../types';
+import { Kelas, Siswa, Halaqoh, CatatanHarian, NilaiEvaluasi, AbsenSiswa, AbsenMusyrif, CapaianBulananSiswa, Musyrif } from '../types';
 import AbsenSayaView from './AbsenSayaView';
 import AbsenCamera from './AbsenCamera';
 
@@ -29,6 +33,7 @@ interface MusyrifDashboardProps {
   students: Siswa[];
   halaqohs: Halaqoh[];
   journals: CatatanHarian[];
+  musyrifs?: Musyrif[];
   studentAttendances?: AbsenSiswa[];
   refreshData: () => Promise<void>;
 }
@@ -41,25 +46,120 @@ export default function MusyrifDashboard({
   students,
   halaqohs,
   journals,
+  musyrifs = [],
   studentAttendances = [],
   refreshData
 }: MusyrifDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'absen_saya' | 'absen_siswa' | 'input_siswa' | 'rekap_hari' | 'rekap_bulan'>('absen_saya');
+  const [activeTab, setActiveTab] = useState<'absen_saya' | 'absen_siswa' | 'input_siswa' | 'input_capaian_bulan' | 'rekap_hari' | 'rekap_bulan'>('absen_saya');
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState({ text: '', type: 'success' });
   const [showAutoAbsenModal, setShowAutoAbsenModal] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
 
+  // Capaian Bulanan States
+  const [capaianBulanFilter, setCapaianBulanFilter] = useState<string>(new Date().toISOString().slice(0, 7)); // e.g. "2026-08"
+  const [capaianKelasId, setCapaianKelasId] = useState<string>('');
+  const [capaianProgram, setCapaianProgram] = useState<'dasar' | 'tahfidz' | ''>('dasar');
+  const [capaianInputsMap, setCapaianInputsMap] = useState<Record<string, {
+    id?: string;
+    capaianAwal: string;
+    capaianAkhir: string;
+    jumlahBarisMurojaah: string;
+    catatanMusyrif: string;
+    isSaved?: boolean;
+    updatedAt?: string;
+  }>>({});
+  const [isLoadingCapaian, setIsLoadingCapaian] = useState(false);
+  const [isSavingAllCapaian, setIsSavingAllCapaian] = useState(false);
+  const [savingSiswaId, setSavingSiswaId] = useState<string | null>(null);
+
+
+  // Find current Musyrif profile details from musyrifs list
+  const currentMusyrif = useMemo(() => {
+    if (!musyrifs || musyrifs.length === 0) return null;
+    const uId = String(userId || '').trim().toLowerCase();
+    const uNama = String(userNama || '').trim().toLowerCase();
+    return musyrifs.find(m =>
+      String(m.id).trim().toLowerCase() === uId ||
+      (m.username && String(m.username).trim().toLowerCase() === uId) ||
+      (m.nama && String(m.nama).trim().toLowerCase() === uNama) ||
+      (m.nama && uNama && (String(m.nama).trim().toLowerCase().includes(uNama) || uNama.includes(String(m.nama).trim().toLowerCase())))
+    ) || null;
+  }, [musyrifs, userId, userNama]);
+
+  // Helper function to check if a halaqoh belongs to current Musyrif
+  const isMyHalaqoh = useCallback((h: Halaqoh) => {
+    if (!h) return false;
+    const uId = String(userId || '').trim().toLowerCase();
+    const uName = String(userNama || '').trim().toLowerCase();
+    const hMusyrifId = String(h.musyrifId || '').trim().toLowerCase();
+    const hMusyrifNama = String(h.musyrifNama || '').trim().toLowerCase();
+    const hNama = String(h.nama || '').trim().toLowerCase();
+    const hId = String(h.id || '').trim().toLowerCase();
+
+    // 1. Direct ID match
+    if (hMusyrifId && (hMusyrifId === uId || (currentMusyrif && hMusyrifId === String(currentMusyrif.id).toLowerCase()))) {
+      return true;
+    }
+
+    // 2. Match in musyrifIds array
+    if (h.musyrifIds && Array.isArray(h.musyrifIds)) {
+      if (h.musyrifIds.some(id => {
+        const sid = String(id).trim().toLowerCase();
+        return sid === uId || (currentMusyrif && sid === String(currentMusyrif.id).toLowerCase());
+      })) {
+        return true;
+      }
+    }
+
+    // 3. Match from current Musyrif profile (halaqohId or halaqohNama)
+    if (currentMusyrif) {
+      const mHalaqohId = String(currentMusyrif.halaqohId || '').trim().toLowerCase();
+      const mHalaqohNama = String(currentMusyrif.halaqohNama || '').trim().toLowerCase();
+
+      if (mHalaqohId && mHalaqohId === hId) return true;
+      if (mHalaqohNama && hNama && (mHalaqohNama === hNama || mHalaqohNama.includes(hNama) || hNama.includes(mHalaqohNama))) return true;
+    }
+
+    // 4. Match by musyrifNama in halaqoh
+    if (hMusyrifNama && uName) {
+      if (hMusyrifNama === uName || hMusyrifNama.includes(uName) || uName.includes(hMusyrifNama)) {
+        return true;
+      }
+    }
+    if (currentMusyrif && currentMusyrif.nama && hMusyrifNama) {
+      const cName = String(currentMusyrif.nama).trim().toLowerCase();
+      if (hMusyrifNama === cName || hMusyrifNama.includes(cName) || cName.includes(hMusyrifNama)) {
+        return true;
+      }
+    }
+
+    return false;
+  }, [userId, userNama, currentMusyrif]);
 
   // Filter halaqohs to only those managed by the current Musyrif (supports multiple Musyrifs)
   const myHalaqohs = useMemo(() => {
-    return halaqohs.filter(h => h.musyrifId === userId || (h.musyrifIds && h.musyrifIds.includes(userId)));
-  }, [halaqohs, userId]);
+    const matched = halaqohs.filter(h => isMyHalaqoh(h));
+    if (matched.length > 0) return matched;
+
+    // Fallback matching if no exact link was found: search for user name/username in halaqohs
+    if (userId || userNama) {
+      const term = (userNama || userId).toLowerCase().trim();
+      if (term) {
+        return halaqohs.filter(h =>
+          (h.musyrifNama && String(h.musyrifNama).toLowerCase().includes(term)) ||
+          (h.nama && String(h.nama).toLowerCase().includes(term))
+        );
+      }
+    }
+    return [];
+  }, [halaqohs, isMyHalaqoh, userId, userNama]);
 
   // Auto-find Musyrif's assigned halaqoh (if any) as initial value
   const assignedHalaqoh = useMemo(() => {
-    return halaqohs.find(h => h.musyrifId === userId || (h.musyrifIds && h.musyrifIds.includes(userId)));
-  }, [halaqohs, userId]);
+    return myHalaqohs[0] || halaqohs.find(h => isMyHalaqoh(h));
+  }, [myHalaqohs, halaqohs, isMyHalaqoh]);
+
   const initialHalaqohId = assignedHalaqoh?.id || myHalaqohs[0]?.id || '';
 
   // Stable first halaqoh id for effect dependencies
@@ -79,7 +179,7 @@ export default function MusyrifDashboard({
   const [classSortOrder, setClassSortOrder] = useState<'asc' | 'desc'>('asc');
   const [isUpdatingAttendance, setIsUpdatingAttendance] = useState<string | null>(null);
   const [selectedBulanMonth, setSelectedBulanMonth] = useState('06'); // Default June (2026 as current year)
-  const [selectedBulanSiswaId, setSelectedBulanSiswaId] = useState('');
+  const [expandedSiswaId, setExpandedSiswaId] = useState<string | null>(null);
   const [searchSiswa, setSearchSiswa] = useState('');
 
   // Form input states (for modal dialog input harian)
@@ -496,9 +596,31 @@ export default function MusyrifDashboard({
     }
   };
 
-  const handleShareWA = () => {
+  const copyToClipboard = async (str: string) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(str);
+        return true;
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = str;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+      }
+    } catch {
+      return false;
+    }
+  };
+
+  const handleShareWA = async () => {
     if (!selectedKelasId || !selectedProgram) return;
-    const activeKelasObj = classes.find(c => c.id === selectedKelasId);
+    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId));
     const kelasNama = activeKelasObj?.nama || 'N/A';
     const programLabel = selectedProgram === 'dasar' ? 'Dasar' : 'Tahfidz';
 
@@ -508,17 +630,7 @@ export default function MusyrifDashboard({
       year: 'numeric'
     });
 
-    const activeStudents = myStudents.filter(s => {
-      if (s.kelasId !== selectedKelasId) return false;
-      if (selectedProgram === 'dasar') {
-        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
-      }
-      if (selectedProgram === 'tahfidz') {
-        return s.isKelasTahfidz === true;
-      }
-      return false;
-    });
-    const sortedStudents = [...activeStudents].sort((a, b) => a.nama.localeCompare(b.nama));
+    const sortedStudents = rekapKelasStudents;
 
     const categoryOrderMap: Record<string, number> = {
       'Murojaah': 1,
@@ -532,7 +644,7 @@ export default function MusyrifDashboard({
     let text = `*REKAP HARIAN KELAS ${kelasNama.toUpperCase()} (${programLabel.toUpperCase()})*\n`;
     text += `*Program Mutiara Bangsa*\n\n`;
     text += `🏫 *Kelas / Program*: ${kelasNama} / ${programLabel}\n`;
-    text += `👤 *Musyrif/ah*: Ustadz/ah ${userNama}\n`;
+    text += `👤 *Musyrif/ah*: ${userNama}\n`;
     text += `📅 *Tanggal*: ${formattedDate}\n`;
     text += `📊 *Total Setoran*: ${uniqueStudentsWithLogs} dari ${sortedStudents.length} Santri (${dailyRecapLogs.length} Input)\n\n`;
     text += `===================================\n\n`;
@@ -584,13 +696,24 @@ export default function MusyrifDashboard({
     text += `===================================\n`;
     text += `_Mencetak Generasi Qur'ani yang Berakhlaqul Karimah_`;
 
-    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-    window.open(waUrl, '_blank');
+    await copyToClipboard(text);
+
+    const encodedText = encodeURIComponent(text);
+    if (encodedText.length < 1800) {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodedText}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Berhasil! Teks rekap ${sortedStudents.length} santri dikirim ke WA (dan tersalin di clipboard).`);
+    } else {
+      const introText = `*REKAP HARIAN KELAS ${kelasNama.toUpperCase()} (${programLabel.toUpperCase()})*\n📅 *Tanggal*: ${formattedDate}\n📊 *Total*: ${uniqueStudentsWithLogs} dari ${sortedStudents.length} Santri\n\n*(Teks rekap 1 kelas lengkap berisi ${sortedStudents.length} santri telah disalin ke Clipboard! Silakan langsung Tempel / Paste di WA)*\n\n`;
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(introText)}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Teks rekap 1 kelas (${sortedStudents.length} santri) telah disalin ke Clipboard! Tinggal PASTE (Tempel) di WhatsApp.`, 'success');
+    }
   };
 
   const handleCetakPDF = () => {
     if (!selectedKelasId || !selectedProgram) return;
-    const activeKelasObj = classes.find(c => c.id === selectedKelasId);
+    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId));
     const kelasNama = activeKelasObj?.nama || 'N/A';
     const programLabel = selectedProgram === 'dasar' ? 'Dasar' : 'Tahfidz';
 
@@ -610,17 +733,7 @@ export default function MusyrifDashboard({
       year: 'numeric'
     });
 
-    const activeStudents = myStudents.filter(s => {
-      if (s.kelasId !== selectedKelasId) return false;
-      if (selectedProgram === 'dasar') {
-        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
-      }
-      if (selectedProgram === 'tahfidz') {
-        return s.isKelasTahfidz === true;
-      }
-      return false;
-    });
-    const sortedStudents = [...activeStudents].sort((a, b) => a.nama.localeCompare(b.nama));
+    const sortedStudents = rekapKelasStudents;
 
     const categoryOrderMap: Record<string, number> = {
       'Murojaah': 1,
@@ -949,9 +1062,9 @@ export default function MusyrifDashboard({
     }, 500);
   };
 
-  const handleCetakPDFBulanan = () => {
-    const selectedSiswa = students.find(s => s.id === selectedBulanSiswaId);
-    if (!selectedSiswa) return;
+  const handleCetakPDFBulananKelas = () => {
+    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId));
+    if (!activeKelasObj || rekapKelasStudents.length === 0) return;
 
     const iframe = document.createElement('iframe');
     iframe.style.position = 'absolute';
@@ -973,33 +1086,30 @@ export default function MusyrifDashboard({
     };
 
     const bulanName = getBulanName(selectedBulanMonth);
+    const progName = selectedProgram === 'tahfidz' ? 'Tahfidz' : selectedProgram === 'dasar' ? 'Dasar' : 'Semua Program';
 
-    const totalA = studentMonthlyLogs.filter(j => j.nilai === 'A').length;
-    const totalB = studentMonthlyLogs.filter(j => j.nilai === 'B').length;
-    const totalC = studentMonthlyLogs.filter(j => j.nilai === 'C').length;
-    const totalD = studentMonthlyLogs.filter(j => j.nilai === 'D').length;
-    const totalE = studentMonthlyLogs.filter(j => j.nilai === 'E').length;
+    const tableRowsHtml = rekapKelasStudents.map((s, index) => {
+      const sLogs = classMonthlyLogs.filter(j => String(j.siswaId) === String(s.id));
+      const totalA = sLogs.filter(j => j.nilai === 'A').length;
+      const totalB = sLogs.filter(j => j.nilai === 'B').length;
+      const totalLain = sLogs.filter(j => ['C','D','E'].includes(j.nilai)).length;
+      const lastLog = sLogs.length > 0 ? sLogs[sLogs.length - 1] : null;
 
-    const tableRowsHtml = studentMonthlyLogs.map((log, index) => {
-      const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
-                         log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
-                         log.nilai === 'C' ? 'Jayyid (C)' : 
-                         log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
-      const isTahfidzLog = log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori);
-      const categoryBadge = log.kategori 
-        ? `<span style="display: inline-block; font-size: 8px; background-color: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 1px 4px; border-radius: 3px; text-transform: uppercase; margin-right: 4px; font-weight: bold; font-family: sans-serif;">${log.kategori}</span>` 
-        : '';
+      const capItem = capaianInputsMap[s.id];
+      const capAwal = capItem?.capaianAwal || '-';
+      const capAkhir = capItem?.capaianAkhir || (lastLog ? lastLog.materiSetoran : '-');
+
       return `
         <tr>
           <td style="text-align: center; font-weight: bold;">${index + 1}</td>
-          <td style="text-align: center; font-family: monospace;">${log.tanggal}</td>
-          <td style="font-weight: 600; color: #0f766e;">
-            ${categoryBadge}${log.materiSetoran}
-          </td>
-          <td style="color: #475569; font-style: italic;">${log.evaluasiTahsin || '-'}</td>
-          <td style="text-align: center;">
-            <span class="nilai-badge nilai-${log.nilai}">${labelNilai}</span>
-          </td>
+          <td style="text-align: center; font-family: monospace;">${s.noInduk || '-'}</td>
+          <td style="font-weight: 700; color: #0f172a;">${s.nama}</td>
+          <td style="text-align: center; font-weight: 800; color: #0f766e;">${sLogs.length}x</td>
+          <td style="text-align: center; color: #15803d; font-weight: 700;">${totalA}</td>
+          <td style="text-align: center; color: #0369a1; font-weight: 700;">${totalB}</td>
+          <td style="text-align: center; color: #b45309;">${totalLain}</td>
+          <td style="font-size: 10px;">${capAwal}</td>
+          <td style="font-size: 10px; font-weight: 600; color: #0f766e;">${capAkhir}</td>
         </tr>
       `;
     }).join('');
@@ -1009,273 +1119,65 @@ export default function MusyrifDashboard({
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Rekap Bulanan - ${selectedSiswa.nama}</title>
+        <title>Rekap Bulanan Kelas ${activeKelasObj.nama}</title>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-          body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            color: #1e293b;
-            padding: 30px;
-            margin: 0;
-            background-color: #fff;
-            line-height: 1.3;
-          }
-          .header {
-            text-align: center;
-            border-bottom: 3px double #0f766e;
-            padding-bottom: 12px;
-            margin-bottom: 20px;
-          }
-          .header-logo {
-            width: 100%;
-            max-width: 100%;
-            height: auto;
-            max-height: 140px;
-            margin: 0 auto 10px auto;
-            display: block;
-            object-fit: contain;
-          }
-          .header h1 {
-            margin: 0;
-            font-size: 20px;
-            color: #0f766e;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-          }
-          .header h2 {
-            margin: 4px 0 0;
-            font-size: 13px;
-            color: #334155;
-            font-weight: 600;
-          }
-          .header p {
-            margin: 4px 0 0;
-            font-size: 10px;
-            color: #64748b;
-            font-style: italic;
-          }
-          .meta-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 15px;
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 10px 15px;
-            font-size: 11px;
-          }
-          .meta-item {
-            margin-bottom: 4px;
-          }
-          .meta-item:last-child {
-            margin-bottom: 0;
-          }
-          .meta-item strong {
-            color: #334155;
-            display: inline-block;
-            width: 120px;
-          }
-          
-          .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 10px;
-            margin-bottom: 20px;
-          }
-          .stat-box {
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            padding: 8px;
-            text-align: center;
-          }
-          .stat-title {
-            font-size: 9px;
-            font-weight: 700;
-            color: #64748b;
-            text-transform: uppercase;
-          }
-          .stat-value {
-            font-size: 14px;
-            font-weight: 800;
-            margin-top: 2px;
-            color: #0f172a;
-          }
-
-          .report-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-            margin-bottom: 25px;
-            font-size: 11px;
-          }
-          .report-table th, .report-table td {
-            border: 1px solid #cbd5e1;
-            padding: 8px 10px;
-            vertical-align: top;
-          }
-          .report-table th {
-            background-color: #f1f5f9;
-            color: #0f766e;
-            font-weight: 700;
-            text-transform: uppercase;
-            font-size: 9px;
-            letter-spacing: 0.5px;
-          }
-          .report-table tr {
-            page-break-inside: avoid;
-          }
-          .report-table tr:nth-child(even) {
-            background-color: #f8fafc;
-          }
-          .nilai-badge {
-            font-weight: 700;
-            font-size: 9px;
-            padding: 2px 6px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            white-space: nowrap;
-            display: inline-block;
-          }
-          .nilai-A { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
-          .nilai-B { background-color: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
-          .nilai-C { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-          .nilai-D { background-color: #fef08a; color: #854d0e; border: 1px solid #fde68a; }
-          .nilai-E { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-          
-          .no-data {
-            font-size: 11px;
-            color: #94a3b8;
-            font-style: italic;
-            text-align: center;
-          }
-          .footer-signature {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 40px;
-            font-size: 11px;
-            page-break-inside: avoid;
-          }
-          .sig-box {
-            width: 220px;
-            text-align: center;
-          }
-          .sig-line {
-            margin-top: 50px;
-            border-top: 1px solid #475569;
-            padding-top: 4px;
-            font-weight: 700;
-            color: #1e293b;
-          }
-          .watermark {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            opacity: 0.22;
-            z-index: 0;
-            pointer-events: none;
-            width: 520px;
-            max-width: 85%;
-            text-align: center;
-          }
-          .watermark img {
-            width: 100%;
-            height: auto;
-            object-fit: contain;
-          }
-          .header, .meta-container, table, .summary-box, .footer-signature {
-            position: relative;
-            z-index: 1;
-          }
-          @media print {
-            body {
-              padding: 0;
-            }
-            @page {
-              size: A4;
-              margin: 1cm;
-            }
-          }
+          body { font-family: 'Inter', -apple-system, sans-serif; color: #1e293b; padding: 25px; margin: 0; background-color: #fff; line-height: 1.3; }
+          .header { text-align: center; border-bottom: 3px double #0f766e; padding-bottom: 12px; margin-bottom: 15px; }
+          .header-logo { width: 100%; max-width: 100%; height: auto; max-height: 120px; margin: 0 auto 8px auto; display: block; object-fit: contain; }
+          .header h1 { margin: 0; font-size: 18px; color: #0f766e; font-weight: 800; text-transform: uppercase; }
+          .header h2 { margin: 3px 0 0; font-size: 12px; color: #334155; font-weight: 600; }
+          .meta-container { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 11px; }
+          .report-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 10.5px; }
+          .report-table th, .report-table td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: middle; }
+          .report-table th { background-color: #0f766e; color: #ffffff; font-weight: 700; text-transform: uppercase; font-size: 9.5px; }
+          .report-table tr:nth-child(even) { background-color: #f8fafc; }
+          .signature-section { margin-top: 30px; display: flex; justify-content: flex-end; font-size: 11px; }
+          .signature-box { text-align: center; width: 220px; }
+          @media print { body { padding: 0; } @page { size: A4 landscape; margin: 1cm; } }
         </style>
       </head>
       <body>
-        <div class="watermark">
-          <img src="https://lh3.googleusercontent.com/d/1651wKNM5H8EGuDrdBiA82bNKuCE3es0d" alt="Watermark" />
-        </div>
         <div class="header">
-          <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
-          <h1>PROGRAM MUTIARA BANGSA</h1>
-          <h2>LAPORAN REKAP BULANAN SETORAN TAHFIDZ</h2>
-          <p>Mencetak Generasi Qur'ani yang Berakhlaqul Karimah</p>
+          <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo MIN Sukoharjo" class="header-logo" />
+          <h1>LAPORAN REKAPITULASI SETORAN HAFALAN BULANAN KELAS</h1>
+          <h2>MIN SUKOHARJO • TAHUN AJARAN 2025/2026</h2>
         </div>
 
         <div class="meta-container">
-          <div>
-            <div class="meta-item"><strong>Nama Santri</strong>: ${selectedSiswa.nama}</div>
-            <div class="meta-item"><strong>No. Induk / Kelas</strong>: ${selectedSiswa.noInduk} / ${selectedSiswa.kelasNama || 'Belum Diatur'}</div>
-            <div class="meta-item"><strong>Halaqoh Qur'an</strong>: ${selectedSiswa.halaqohNama || 'Belum Diatur'}</div>
-          </div>
-          <div>
-            <div class="meta-item"><strong>Bulan / Tahun</strong>: ${bulanName} 2026</div>
-            <div class="meta-item"><strong>Musyrif Pengampu</strong>: ${userNama}</div>
-            <div class="meta-item"><strong>Total Setoran</strong>: ${studentMonthlyLogs.length} Kali</div>
-          </div>
-        </div>
-
-        <div class="stats-grid">
-          <div class="stat-box" style="background-color: #f0fdf4;">
-            <div class="stat-title" style="color: #166534;">Mumtaz (A)</div>
-            <div class="stat-value" style="color: #166534;">${totalA}</div>
-          </div>
-          <div class="stat-box" style="background-color: #f0fdfa;">
-            <div class="stat-title" style="color: #0f766e;">Jayyid Jidid (B)</div>
-            <div class="stat-value" style="color: #0f766e;">${totalB}</div>
-          </div>
-          <div class="stat-box" style="background-color: #fffbeb;">
-            <div class="stat-title" style="color: #b45309;">Jayyid (C)</div>
-            <div class="stat-value" style="color: #b45309;">${totalC}</div>
-          </div>
-          <div class="stat-box" style="background-color: #fefce8;">
-            <div class="stat-title" style="color: #a16207;">Maqbul (D)</div>
-            <div class="stat-value" style="color: #a16207;">${totalD}</div>
-          </div>
-          <div class="stat-box" style="background-color: #fef2f2;">
-            <div class="stat-title" style="color: #991b1b;">Rosib (E)</div>
-            <div class="stat-value" style="color: #991b1b;">${totalE}</div>
-          </div>
+          <div><strong>Kelas:</strong> ${activeKelasObj.nama}</div>
+          <div><strong>Program:</strong> ${progName}</div>
+          <div><strong>Bulan:</strong> ${bulanName} 2026</div>
+          <div><strong>Musyrif/ah:</strong> ${userNama}</div>
+          <div><strong>Total Santri:</strong> ${rekapKelasStudents.length} Santri</div>
+          <div><strong>Total Setoran Kelas:</strong> ${classMonthlyLogs.length} Setoran</div>
         </div>
 
         <table class="report-table">
           <thead>
             <tr>
-              <th style="width: 5%; text-align: center;">No</th>
-              <th style="width: 15%; text-align: center;">Tanggal</th>
-              <th style="width: 35%; text-align: left;">Materi Setoran</th>
-              <th style="width: 30%; text-align: left;">Evaluasi / Tahsin</th>
-              <th style="width: 15%; text-align: center;">Nilai</th>
+              <th style="width: 4%; text-align: center;">No</th>
+              <th style="width: 10%; text-align: center;">NIS</th>
+              <th style="width: 25%;">Nama Santri</th>
+              <th style="width: 10%; text-align: center;">Total Setor</th>
+              <th style="width: 8%; text-align: center;">A (Mumtaz)</th>
+              <th style="width: 8%; text-align: center;">B (Jayyid)</th>
+              <th style="width: 8%; text-align: center;">Lainnya</th>
+              <th style="width: 13.5%;">Capaian Awal</th>
+              <th style="width: 13.5%;">Capaian Akhir</th>
             </tr>
           </thead>
           <tbody>
-            ${studentMonthlyLogs.length === 0 ? `
-              <tr>
-                <td colspan="5" class="no-data">Tidak ada catatan setoran untuk bulan ini.</td>
-              </tr>
-            ` : tableRowsHtml}
+            ${tableRowsHtml}
           </tbody>
         </table>
 
-        <div class="footer-signature">
-          <div class="sig-box">
-            <div>Mengetahui,</div>
-            <div style="font-weight: 700; margin-top: 4px;">Manager Pengajaran Team Qur'an</div>
-            <div class="sig-line">Ust. M. Ridwan Sam, S.Pd, M.Pd.</div>
-          </div>
-          <div class="sig-box">
-            <div>Sukoharjo, ${bulanName} 2026</div>
-            <div style="font-weight: 700; margin-top: 4px;">Musyrif Pengampu</div>
-            <div class="sig-line">${userNama}</div>
+        <div class="signature-section">
+          <div class="signature-box">
+            <p>Sukoharjo, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            <p>Musyrif / Musyrifah,</p>
+            <div style="height: 50px;"></div>
+            <p style="font-weight: bold; text-decoration: underline;">${userNama}</p>
           </div>
         </div>
       </body>
@@ -1289,28 +1191,133 @@ export default function MusyrifDashboard({
     setTimeout(() => {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
-      
       setTimeout(() => {
         document.body.removeChild(iframe);
       }, 5000);
     }, 500);
   };
 
-  // All students belonging to this Musyrif's managed halaqohs (filtered to selected halaqoh if active)
-  const myStudents = students
-    .filter(s => {
-      if (selectedHalaqohId) {
-        return s.halaqohId === selectedHalaqohId;
-      }
-      return myHalaqohs.some(h => h.id === s.halaqohId);
-    })
-    .sort((a, b) => {
-      const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
-      if (classCompare !== 0) {
-        return classSortOrder === 'asc' ? classCompare : -classCompare;
-      }
-      return (a.nama || '').localeCompare(b.nama || '', 'id');
+  const handleShareWABulananKelas = () => {
+    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId));
+    if (!activeKelasObj || rekapKelasStudents.length === 0) return;
+
+    const getBulanName = (monthCode: string) => {
+      const months: Record<string, string> = {
+        '01': 'Januari', '02': 'Februari', '03': 'Maret', '04': 'April',
+        '05': 'Mei', '06': 'Juni', '07': 'Juli', '08': 'Agustus',
+        '09': 'September', '10': 'Oktober', '11': 'November', '12': 'Desember'
+      };
+      return months[monthCode] || monthCode;
+    };
+
+    const bulanName = getBulanName(selectedBulanMonth);
+    const progName = selectedProgram === 'tahfidz' ? 'Tahfidz' : selectedProgram === 'dasar' ? 'Dasar' : 'Semua Program';
+
+    let text = `*REKAP BULANAN HAFALAN KELAS ${activeKelasObj.nama.toUpperCase()}*\n`;
+    text += `📚 Program: ${progName}\n`;
+    text += `📅 Bulan: ${bulanName} 2026\n`;
+    text += `👤 Musyrif/ah: ${userNama}\n`;
+    text += `----------------------------------------\n`;
+    text += `📊 *RINGKASAN KELAS*:\n`;
+    text += `• Total Santri: ${rekapKelasStudents.length} Santri\n`;
+    text += `• Total Setoran Input: ${classMonthlyLogs.length} Kali\n`;
+    text += `----------------------------------------\n\n`;
+    text += `📋 *DAFTAR CAPAIAN SANTRI*:\n\n`;
+
+    rekapKelasStudents.forEach((s, idx) => {
+      const sLogs = classMonthlyLogs.filter(j => String(j.siswaId) === String(s.id));
+      const totalA = sLogs.filter(j => j.nilai === 'A').length;
+      const totalB = sLogs.filter(j => j.nilai === 'B').length;
+      const totalLain = sLogs.filter(j => ['C','D','E'].includes(j.nilai)).length;
+      const lastLog = sLogs.length > 0 ? sLogs[sLogs.length - 1] : null;
+
+      const capItem = capaianInputsMap[s.id];
+      const capAwal = capItem?.capaianAwal || '';
+      const capAkhir = capItem?.capaianAkhir || (lastLog ? lastLog.materiSetoran : '');
+
+      text += `${idx + 1}. *${s.nama}* (${s.noInduk || '-'})\n`;
+      text += `   • Total Setoran: ${sLogs.length}x (A:${totalA}, B:${totalB}, Lain:${totalLain})\n`;
+      if (capAwal) text += `   • Capaian Awal: ${capAwal}\n`;
+      if (capAkhir) text += `   • Capaian Akhir: ${capAkhir}\n`;
+      if (lastLog) text += `   • Setoran Terakhir: ${lastLog.materiSetoran} (${lastLog.tanggal})\n`;
+      text += `\n`;
     });
+
+    text += `----------------------------------------\n`;
+    text += `_SIM Tahfidz & Tahsin - MIN Sukoharjo_`;
+
+    navigator.clipboard.writeText(text).then(() => {
+      showFeedback(`Teks Rekap Bulanan Kelas ${activeKelasObj.nama} berhasil disalin ke Clipboard!`, 'success');
+      const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      window.open(url, '_blank');
+    }).catch(() => {
+      const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      window.open(url, '_blank');
+    });
+  };
+
+  // Helper to check if a student belongs to a halaqoh
+  const isStudentInHalaqoh = useCallback((s: Siswa, h: Halaqoh) => {
+    if (!s || !h) return false;
+    const sHalaqohId = String(s.halaqohId || '').trim().toLowerCase();
+    const sHalaqohNama = String(s.halaqohNama || '').trim().toLowerCase();
+    const hId = String(h.id || '').trim().toLowerCase();
+    const hNama = String(h.nama || '').trim().toLowerCase();
+
+    // 1. Direct ID match
+    if (sHalaqohId && sHalaqohId === hId) return true;
+
+    // 2. Student halaqohId equals halaqoh name or vice versa
+    if (sHalaqohId && hNama && (sHalaqohId === hNama || sHalaqohId.includes(hNama) || hNama.includes(sHalaqohId))) return true;
+
+    // 3. Student halaqohNama matches halaqoh name or ID
+    if (sHalaqohNama) {
+      if (sHalaqohNama === hNama || sHalaqohNama === hId) return true;
+      if (hNama && (sHalaqohNama.includes(hNama) || hNama.includes(sHalaqohNama))) return true;
+    }
+
+    return false;
+  }, []);
+
+  // Active Selected Halaqoh Object
+  const activeHalaqohObj = useMemo(() => {
+    if (!selectedHalaqohId) return null;
+    const selId = String(selectedHalaqohId).trim().toLowerCase();
+    return halaqohs.find(h => String(h.id).trim().toLowerCase() === selId) ||
+           myHalaqohs.find(h => String(h.id).trim().toLowerCase() === selId) ||
+           halaqohs.find(h => h.nama.trim().toLowerCase() === selId || h.nama.trim().toLowerCase().includes(selId) || selId.includes(h.nama.trim().toLowerCase())) || null;
+  }, [selectedHalaqohId, halaqohs, myHalaqohs]);
+
+  // Automatically select the first halaqoh if none is selected yet and myHalaqohs is available
+  useEffect(() => {
+    if (!selectedHalaqohId && myHalaqohs.length > 0) {
+      setSelectedHalaqohId(myHalaqohs[0].id);
+    }
+  }, [myHalaqohs, selectedHalaqohId]);
+
+  // All students belonging to this Musyrif's managed halaqohs (filtered to selected halaqoh if active)
+  const myStudents = useMemo(() => {
+    return students
+      .filter(s => {
+        if (activeHalaqohObj) {
+          return isStudentInHalaqoh(s, activeHalaqohObj);
+        }
+        if (selectedHalaqohId) {
+          const selId = String(selectedHalaqohId).trim().toLowerCase();
+          const sHId = String(s.halaqohId || '').trim().toLowerCase();
+          const sHNama = String(s.halaqohNama || '').trim().toLowerCase();
+          return sHId === selId || sHNama === selId || (sHNama && selId && (sHNama.includes(selId) || selId.includes(sHNama)));
+        }
+        return myHalaqohs.some(h => isStudentInHalaqoh(s, h));
+      })
+      .sort((a, b) => {
+        const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
+        if (classCompare !== 0) {
+          return classSortOrder === 'asc' ? classCompare : -classCompare;
+        }
+        return (a.nama || '').localeCompare(b.nama || '', 'id');
+      });
+  }, [students, activeHalaqohObj, selectedHalaqohId, myHalaqohs, isStudentInHalaqoh, classSortOrder]);
 
   // Filter students based on selected Class and Program
   const inputTabStudents = myStudents.filter(s => {
@@ -1348,12 +1355,8 @@ export default function MusyrifDashboard({
     const s = students.find(siswa => String(siswa.id) === String(j.siswaId));
     if (!s) return false;
 
-    // Must be managed by this Musyrif
-    const isMyStudent = myHalaqohs.some(h => h.id === s.halaqohId);
-    if (!isMyStudent) return false;
-
     // Filter by selected Class
-    if (s.kelasId !== selectedKelasId) return false;
+    if (String(s.kelasId) !== String(selectedKelasId)) return false;
 
     // Filter by selected Program
     if (selectedProgram === 'dasar') {
@@ -1369,9 +1372,9 @@ export default function MusyrifDashboard({
     return false;
   });
 
-  // Students available for selection in "Rekap Bulanan"
-  const selectBulanStudents = myStudents.filter(s => {
-    if (s.kelasId !== selectedKelasId) return false;
+  // All students belonging to the selected class and program (full class list, e.g. 35 students)
+  const rekapKelasStudents = students.filter(s => {
+    if (String(s.kelasId) !== String(selectedKelasId)) return false;
     if (selectedProgram === 'dasar') {
       return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
     }
@@ -1379,19 +1382,25 @@ export default function MusyrifDashboard({
       return s.isKelasTahfidz === true;
     }
     return false;
-  });
+  }).sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
 
-  // Filter for "Rekap Bulanan" logs
+  // Filter for "Rekap Bulanan" logs (class-wide)
   // Month string format: 2026-XX
   const selectedYearMonthPrefix = `2026-${selectedBulanMonth}`;
-  const studentMonthlyLogs = journals.filter(j => {
-    if (String(j.siswaId) !== String(selectedBulanSiswaId) || !j.tanggal.startsWith(selectedYearMonthPrefix)) return false;
+  const classMonthlyLogs = journals.filter(j => {
+    if (!j.tanggal.startsWith(selectedYearMonthPrefix)) return false;
+    const isStudentInClass = rekapKelasStudents.some(s => String(s.id) === String(j.siswaId));
+    if (!isStudentInClass) return false;
     if (selectedProgram === 'tahfidz') {
       return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
     } else {
       return j.program === 'dasar' || (j.program !== 'tahfidz' && !j.kategori);
     }
   });
+
+  const activeStudentCount = rekapKelasStudents.filter(s =>
+    classMonthlyLogs.some(j => String(j.siswaId) === String(s.id))
+  ).length;
 
   const getNilaiBadgeClass = (val: NilaiEvaluasi) => {
     switch(val) {
@@ -1412,6 +1421,206 @@ export default function MusyrifDashboard({
       case 'D': return 'Maqbul (D)';
       case 'E': return 'Rosib (E)';
       default: return val;
+    }
+  };
+
+  // Students for Capaian Bulanan based on selected class & program
+  const capaianKelasStudents = useMemo(() => {
+    if (!capaianKelasId) return [];
+    return students.filter(s => {
+      if (String(s.kelasId) !== String(capaianKelasId)) return false;
+      if (capaianProgram === 'dasar') {
+        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+      }
+      if (capaianProgram === 'tahfidz') {
+        return s.isKelasTahfidz === true;
+      }
+      return true;
+    }).sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
+  }, [students, capaianKelasId, capaianProgram]);
+
+  // Saved count for Capaian Bulanan
+  const capaianSavedCount = useMemo(() => {
+    return capaianKelasStudents.filter(s => capaianInputsMap[s.id]?.isSaved).length;
+  }, [capaianKelasStudents, capaianInputsMap]);
+
+  // Effect to load Capaian Bulanan data when class/month changes
+  useEffect(() => {
+    if (activeTab !== 'input_capaian_bulan' || !capaianKelasId) return;
+    let isMounted = true;
+
+    async function fetchCapaianData() {
+      setIsLoadingCapaian(true);
+      try {
+        const existingList = await getCapaianBulanan(capaianBulanFilter, capaianKelasId);
+        if (!isMounted) return;
+
+        const map: typeof capaianInputsMap = {};
+        const existingMap = new Map(existingList.map(item => [item.siswaId, item]));
+
+        capaianKelasStudents.forEach(s => {
+          const item = existingMap.get(s.id);
+          map[s.id] = {
+            id: item?.id,
+            capaianAwal: item?.capaianAwal || '',
+            capaianAkhir: item?.capaianAkhir || '',
+            jumlahBarisMurojaah: item?.jumlahBarisMurojaah !== undefined ? String(item.jumlahBarisMurojaah) : '',
+            catatanMusyrif: item?.catatanMusyrif || '',
+            isSaved: !!item?.id,
+            updatedAt: item?.updatedAt
+          };
+        });
+
+        setCapaianInputsMap(map);
+      } catch (err) {
+        console.warn("Failed loading capaian bulanan:", err);
+      } finally {
+        if (isMounted) setIsLoadingCapaian(false);
+      }
+    }
+
+    fetchCapaianData();
+    return () => { isMounted = false; };
+  }, [activeTab, capaianKelasId, capaianBulanFilter, capaianKelasStudents]);
+
+  const handleUpdateCapaianInput = (siswaId: string, field: 'capaianAwal' | 'capaianAkhir' | 'jumlahBarisMurojaah' | 'catatanMusyrif', value: string) => {
+    setCapaianInputsMap(prev => {
+      const existing = prev[siswaId] || { capaianAwal: '', capaianAkhir: '', jumlahBarisMurojaah: '', catatanMusyrif: '', isSaved: false };
+      return {
+        ...prev,
+        [siswaId]: {
+          ...existing,
+          [field]: value,
+          isSaved: false
+        }
+      };
+    });
+  };
+
+  const handleSaveSingleCapaian = async (siswa: Siswa) => {
+    const input = capaianInputsMap[siswa.id];
+    if (!input) return;
+
+    setSavingSiswaId(siswa.id);
+    try {
+      const activeKelasObj = classes.find(c => String(c.id) === String(capaianKelasId));
+      const savedItem = await saveCapaianBulananItem({
+        id: input.id,
+        bulan: capaianBulanFilter,
+        siswaId: siswa.id,
+        siswaNama: siswa.nama,
+        noInduk: siswa.noInduk,
+        kelasId: String(capaianKelasId),
+        kelasNama: activeKelasObj?.nama || siswa.kelasNama || '',
+        capaianAwal: input.capaianAwal || '',
+        capaianAkhir: input.capaianAkhir || '',
+        jumlahBarisMurojaah: input.jumlahBarisMurojaah || '',
+        catatanMusyrif: input.catatanMusyrif || '',
+        musyrifId: userId,
+        musyrifNama: userNama
+      });
+
+      setCapaianInputsMap(prev => ({
+        ...prev,
+        [siswa.id]: {
+          ...prev[siswa.id],
+          id: savedItem.id,
+          isSaved: true
+        }
+      }));
+
+      showFeedback(`Capaian Bulanan untuk ${siswa.nama} berhasil disimpan!`, 'success');
+    } catch (err) {
+      showFeedback(`Gagal menyimpan data ${siswa.nama}`, 'danger');
+    } finally {
+      setSavingSiswaId(null);
+    }
+  };
+
+  const handleSaveAllCapaian = async () => {
+    if (!capaianKelasId || capaianKelasStudents.length === 0) return;
+    setIsSavingAllCapaian(true);
+    try {
+      const activeKelasObj = classes.find(c => String(c.id) === String(capaianKelasId));
+      const payload = capaianKelasStudents.map(siswa => {
+        const input = capaianInputsMap[siswa.id] || { capaianAwal: '', capaianAkhir: '', jumlahBarisMurojaah: '', catatanMusyrif: '' };
+        return {
+          id: input.id,
+          bulan: capaianBulanFilter,
+          siswaId: siswa.id,
+          siswaNama: siswa.nama,
+          noInduk: siswa.noInduk,
+          kelasId: String(capaianKelasId),
+          kelasNama: activeKelasObj?.nama || siswa.kelasNama || '',
+          capaianAwal: input.capaianAwal || '',
+          capaianAkhir: input.capaianAkhir || '',
+          jumlahBarisMurojaah: input.jumlahBarisMurojaah || '',
+          catatanMusyrif: input.catatanMusyrif || '',
+          musyrifId: userId,
+          musyrifNama: userNama
+        };
+      });
+
+      await saveBulkCapaianBulanan(payload);
+
+      const updatedMap: typeof capaianInputsMap = { ...capaianInputsMap };
+      capaianKelasStudents.forEach(siswa => {
+        if (updatedMap[siswa.id]) {
+          updatedMap[siswa.id].isSaved = true;
+        }
+      });
+      setCapaianInputsMap(updatedMap);
+
+      showFeedback(`Berhasil menyimpan seluruh data Capaian Bulanan kelas (${activeKelasObj?.nama || 'Terpilih'})!`, 'success');
+    } catch (err) {
+      showFeedback(`Gagal menyimpan data capaian kelas`, 'danger');
+    } finally {
+      setIsSavingAllCapaian(false);
+    }
+  };
+
+  const handleCopyPrevMonthCapaian = async () => {
+    if (!capaianBulanFilter || !capaianKelasId) return;
+
+    const [yearStr, monthStr] = capaianBulanFilter.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10) - 1;
+    if (month < 1) {
+      month = 12;
+      year = year - 1;
+    }
+    const prevMonthFilter = `${year}-${String(month).padStart(2, '0')}`;
+
+    try {
+      const prevData = await getCapaianBulanan(prevMonthFilter, capaianKelasId);
+      if (prevData.length === 0) {
+        showFeedback(`Tidak ditemukan data bulan sebelumnya (${prevMonthFilter}) untuk disalin.`, 'danger');
+        return;
+      }
+
+      const prevMap = new Map(prevData.map(item => [item.siswaId, item]));
+      let copiedCount = 0;
+
+      setCapaianInputsMap(prev => {
+        const newMap = { ...prev };
+        capaianKelasStudents.forEach(siswa => {
+          const prevItem = prevMap.get(siswa.id);
+          if (prevItem && prevItem.capaianAkhir) {
+            const current = newMap[siswa.id] || { capaianAwal: '', capaianAkhir: '', jumlahBarisMurojaah: '', catatanMusyrif: '', isSaved: false };
+            newMap[siswa.id] = {
+              ...current,
+              capaianAwal: prevItem.capaianAkhir,
+              isSaved: false
+            };
+            copiedCount++;
+          }
+        });
+        return newMap;
+      });
+
+      showFeedback(`Berhasil menyalin Capaian Akhir bulan lalu ke Capaian Awal untuk ${copiedCount} santri!`, 'success');
+    } catch (err) {
+      showFeedback(`Gagal menyalin data dari bulan sebelumnya`, 'danger');
     }
   };
 
@@ -1463,6 +1672,7 @@ export default function MusyrifDashboard({
               { id: 'absen_saya', label: 'Absen Saya', icon: UserCheck },
               { id: 'absen_siswa', label: 'Absen Siswa', icon: CheckCircle },
               { id: 'input_siswa', label: 'Input Harian Siswa', icon: BookOpen },
+              { id: 'input_capaian_bulan', label: 'Input Capaian Bulanan Siswa', icon: FileText },
               { id: 'rekap_hari', label: 'Rekap Harian', icon: Calendar },
               { id: 'rekap_bulan', label: 'Rekap Bulanan', icon: TrendingUp }
             ].map(tab => {
@@ -1564,7 +1774,7 @@ export default function MusyrifDashboard({
                       <div>
                         <div className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest leading-none">HALAQOH AKTIF</div>
                         <div className="text-sm font-black mt-1">
-                          {myHalaqohs.find(h => h.id === selectedHalaqohId)?.nama || 'Halaqoh Aktif'}
+                          {activeHalaqohObj?.nama || myHalaqohs.find(h => h.id === selectedHalaqohId)?.nama || 'Halaqoh Aktif'}
                         </div>
                       </div>
                     </div>
@@ -1942,7 +2152,7 @@ export default function MusyrifDashboard({
                       <div>
                         <div className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest leading-none">HALAQOH AKTIF</div>
                         <div className="text-sm font-black mt-1">
-                          {myHalaqohs.find(h => h.id === selectedHalaqohId)?.nama || 'Halaqoh Aktif'}
+                          {activeHalaqohObj?.nama || myHalaqohs.find(h => h.id === selectedHalaqohId)?.nama || 'Halaqoh Aktif'}
                         </div>
                       </div>
                     </div>
@@ -2305,6 +2515,254 @@ export default function MusyrifDashboard({
             </div>
           )}
 
+          {/* TAB: INPUT CAPAIAN BULANAN SISWA */}
+          {activeTab === 'input_capaian_bulan' && (
+            <div className="space-y-6">
+              {/* Header Banner */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4 gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-emerald-600 text-white rounded-2xl shadow-sm">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800">
+                      Input Capaian Bulanan Siswa
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Pencatatan Capaian Awal Bulan, Capaian Akhir Bulan, Jumlah Baris Murojaah, dan Catatan Musyrif.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filter Controls Bar */}
+              <div className="bg-slate-50 p-5 rounded-3xl border border-slate-150 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 block uppercase">1. Pilih Kelas :</label>
+                  <select
+                    value={capaianKelasId}
+                    onChange={(e) => setCapaianKelasId(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
+                  >
+                    <option value="">-- Pilih Kelas --</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.nama}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 block uppercase">2. Pilih Program :</label>
+                  <select
+                    value={capaianProgram}
+                    onChange={(e) => setCapaianProgram(e.target.value as any)}
+                    className="w-full px-4 py-2.5 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
+                  >
+                    <option value="">-- Semua Program --</option>
+                    <option value="dasar">Program Dasar</option>
+                    <option value="tahfidz">Program Tahfidz</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 block uppercase">3. Pilih Bulan & Tahun :</label>
+                  <input
+                    type="month"
+                    value={capaianBulanFilter}
+                    onChange={(e) => setCapaianBulanFilter(e.target.value)}
+                    className="w-full px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              {/* Action Ribbon & Summary */}
+              {capaianKelasId && (
+                <div className="bg-white p-4 rounded-2xl border border-slate-150 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-150 text-emerald-800 rounded-xl text-xs font-bold">
+                      Total: {capaianKelasStudents.length} Santri
+                    </div>
+                    <div className="px-3 py-1.5 bg-blue-50 border border-blue-150 text-blue-800 rounded-xl text-xs font-bold">
+                      Tersimpan: {capaianSavedCount} / {capaianKelasStudents.length}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyPrevMonthCapaian}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-2 border border-slate-200"
+                      title="Salin Capaian Akhir bulan lalu ke Capaian Awal bulan ini"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Salin Akhir Bulan Lalu → Awal Bulan Ini</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveAllCapaian}
+                      disabled={isSavingAllCapaian || capaianKelasStudents.length === 0}
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-sm flex items-center gap-2"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{isSavingAllCapaian ? 'Menyimpan...' : 'Simpan Semua Data Kelas'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Student Form Cards */}
+              {!capaianKelasId ? (
+                <div className="text-center py-16 bg-white border border-slate-150 rounded-3xl shadow-xs max-w-xl mx-auto my-4 p-8 space-y-4">
+                  <div className="w-14 h-14 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center mx-auto border border-emerald-100">
+                    <Filter className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-black text-slate-800">Pilih Kelas Terlebih Dahulu</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+                      Silakan pilih kelas pada filter di atas untuk menampilkan daftar siswa dan mengisi capaian bulanan.
+                    </p>
+                  </div>
+                </div>
+              ) : isLoadingCapaian ? (
+                <div className="text-center py-16 bg-white border border-slate-150 rounded-3xl shadow-xs max-w-xl mx-auto my-4 p-8 space-y-3">
+                  <RefreshCw className="w-8 h-8 text-emerald-600 animate-spin mx-auto" />
+                  <p className="text-xs font-bold text-slate-600">Memuat data capaian bulanan...</p>
+                </div>
+              ) : capaianKelasStudents.length === 0 ? (
+                <div className="text-center py-16 bg-white border border-slate-150 rounded-3xl shadow-xs max-w-xl mx-auto my-4 p-8 space-y-4">
+                  <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-100">
+                    <AlertCircle className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base font-black text-slate-800">Tidak Ada Santri</h3>
+                    <p className="text-xs text-slate-500">
+                      Tidak ditemukan siswa pada kelas & program yang dipilih.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {capaianKelasStudents.map((siswa, index) => {
+                    const currentData = capaianInputsMap[siswa.id] || {
+                      capaianAwal: '',
+                      capaianAkhir: '',
+                      jumlahBarisMurojaah: '',
+                      catatanMusyrif: '',
+                      isSaved: false
+                    };
+                    const isSavingThis = savingSiswaId === siswa.id;
+
+                    return (
+                      <div 
+                        key={siswa.id} 
+                        className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden shadow-xs hover:shadow-md ${
+                          currentData.isSaved ? 'border-emerald-200 bg-emerald-50/20' : 'border-slate-200'
+                        }`}
+                      >
+                        {/* Card Header */}
+                        <div className="px-5 py-3.5 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-black flex items-center justify-center">
+                              {index + 1}
+                            </span>
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-900">{siswa.nama}</h4>
+                              <p className="text-[11px] text-slate-500">
+                                NIS: <span className="font-semibold text-slate-700">{siswa.noInduk}</span> • Kelas: <span className="font-semibold text-slate-700">{siswa.kelasNama}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {currentData.isSaved ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold">
+                                <Check className="w-3 h-3" /> Tersimpan
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold">
+                                Belum Disimpan
+                              </span>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleSaveSingleCapaian(siswa)}
+                              disabled={isSavingThis}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span>{isSavingThis ? 'Menyimpan...' : 'Simpan'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Card Form Grid */}
+                        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* 1. Capaian Awal Bulan */}
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <span>Capaian Awal Bulan</span>
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Juz 1 Hal 1 / Surat An-Naba 1"
+                              value={currentData.capaianAwal}
+                              onChange={(e) => handleUpdateCapaianInput(siswa.id, 'capaianAwal', e.target.value)}
+                              className="w-full px-3.5 py-2.5 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 font-medium placeholder:text-slate-400"
+                            />
+                          </div>
+
+                          {/* 2. Capaian Akhir Bulan */}
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <span>Capaian Akhir Bulan</span>
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Juz 2 Hal 10 / Surat An-Nazi'at 20"
+                              value={currentData.capaianAkhir}
+                              onChange={(e) => handleUpdateCapaianInput(siswa.id, 'capaianAkhir', e.target.value)}
+                              className="w-full px-3.5 py-2.5 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 font-medium placeholder:text-slate-400"
+                            />
+                          </div>
+
+                          {/* 3. Jumlah Baris Murojaah */}
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <span>Jumlah Baris Murojaah</span>
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 150 baris atau 150"
+                              value={currentData.jumlahBarisMurojaah}
+                              onChange={(e) => handleUpdateCapaianInput(siswa.id, 'jumlahBarisMurojaah', e.target.value)}
+                              className="w-full px-3.5 py-2.5 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 font-medium placeholder:text-slate-400"
+                            />
+                          </div>
+
+                          {/* 4. Keterangan Catatan Tambahan Musyrif */}
+                          <div className="space-y-1.5 md:col-span-3">
+                            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <span>Keterangan Catatan Tambahan Musyrif</span>
+                            </label>
+                            <textarea
+                              rows={2}
+                              placeholder="Ketik catatan perkembangan, tajwid, adab, atau pesan musyrif/ah untuk santri..."
+                              value={currentData.catatanMusyrif}
+                              onChange={(e) => handleUpdateCapaianInput(siswa.id, 'catatanMusyrif', e.target.value)}
+                              className="w-full px-3.5 py-2.5 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 font-medium placeholder:text-slate-400 resize-y"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB: REKAP HARIAN */}
           {activeTab === 'rekap_hari' && (
             <div className="space-y-6">
@@ -2524,20 +2982,17 @@ export default function MusyrifDashboard({
           {activeTab === 'rekap_bulan' && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-lg font-black text-slate-800">Laporan Rekap Bulanan Siswa</h3>
-                <p className="text-xs text-slate-500">Melihat performa, tingkat keaktifan, dan rekam materi setoran per individu siswa per bulan</p>
+                <h3 className="text-lg font-black text-slate-800">Laporan Rekap Bulanan Kelas</h3>
+                <p className="text-xs text-slate-500">Melihat ringkasan capaian, tingkat keaktifan, dan rekam materi setoran seluruh santri per kelas per bulan</p>
               </div>
 
-              {/* Filters Block - Diluar atas border */}
-              <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Filters Block */}
+              <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 block uppercase">1. Pilih Kelas :</label>
                   <select
                     value={selectedKelasId}
-                    onChange={(e) => {
-                      setSelectedKelasId(e.target.value);
-                      setSelectedBulanSiswaId(''); // Reset selected student
-                    }}
+                    onChange={(e) => setSelectedKelasId(e.target.value)}
                     className="w-full px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
                   >
                     <option value="">-- Pilih Kelas --</option>
@@ -2551,35 +3006,16 @@ export default function MusyrifDashboard({
                   <label className="text-[10px] font-bold text-slate-500 block uppercase">2. Pilih Program :</label>
                   <select
                     value={selectedProgram}
-                    onChange={(e) => {
-                      setSelectedProgram(e.target.value as any);
-                      setSelectedBulanSiswaId(''); // Reset selected student
-                    }}
+                    onChange={(e) => setSelectedProgram(e.target.value as any)}
                     className="w-full px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
                   >
-                    <option value="">-- Pilih Program --</option>
                     <option value="dasar">Program Dasar</option>
                     <option value="tahfidz">Program Tahfidz</option>
                   </select>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 block uppercase">3. Pilih Siswa :</label>
-                  <select
-                    value={selectedBulanSiswaId}
-                    onChange={(e) => setSelectedBulanSiswaId(e.target.value)}
-                    disabled={!selectedKelasId || !selectedProgram}
-                    className="w-full px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 font-bold text-slate-800"
-                  >
-                    <option value="">-- Pilih Siswa --</option>
-                    {selectBulanStudents.map(s => (
-                      <option key={s.id} value={s.id}>{s.nama} ({s.noInduk})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 block uppercase">4. Pilih Bulan :</label>
+                  <label className="text-[10px] font-bold text-slate-500 block uppercase">3. Pilih Bulan :</label>
                   <select
                     value={selectedBulanMonth}
                     onChange={(e) => setSelectedBulanMonth(e.target.value)}
@@ -2601,94 +3037,184 @@ export default function MusyrifDashboard({
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-150 p-6 rounded-3xl shadow-xs">
-                {selectedBulanSiswaId ? (
-                  <div className="space-y-6">
-                    {/* Monthly Summary Statistics Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <div className="p-4 bg-emerald-50/70 border border-emerald-100 rounded-2xl">
-                        <div className="text-[10px] font-bold text-emerald-600 uppercase">Jumlah Setoran</div>
-                        <div className="text-2xl font-black text-emerald-900 mt-1">{studentMonthlyLogs.length} Kali</div>
-                      </div>
+              {!selectedKelasId ? (
+                <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs">
+                  Silakan pilih Kelas di atas untuk menampilkan Rekap Bulanan Kelas.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Summary Stats Cards for Class */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="p-4 bg-emerald-50/70 border border-emerald-100 rounded-2xl">
+                      <div className="text-[10px] font-bold text-emerald-600 uppercase">Total Santri Kelas</div>
+                      <div className="text-2xl font-black text-emerald-900 mt-1">{rekapKelasStudents.length} Santri</div>
+                    </div>
 
-                      <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl">
-                        <div className="text-[10px] font-bold text-indigo-600 uppercase">Perolehan Mumtaz (A)</div>
-                        <div className="text-2xl font-black text-indigo-900 mt-1">
-                          {studentMonthlyLogs.filter(j => j.nilai === 'A').length} Kali
-                        </div>
-                      </div>
+                    <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl">
+                      <div className="text-[10px] font-bold text-indigo-600 uppercase">Total Setoran Kelas</div>
+                      <div className="text-2xl font-black text-indigo-900 mt-1">{classMonthlyLogs.length} Setoran</div>
+                    </div>
 
-                      <div className="p-4 bg-sky-50 border border-sky-100 rounded-2xl">
-                        <div className="text-[10px] font-bold text-sky-600 uppercase">Jayyid Jidid (B)</div>
-                        <div className="text-xl font-bold text-sky-900 mt-1">
-                          {studentMonthlyLogs.filter(j => j.nilai === 'B').length} Kali
-                        </div>
-                      </div>
-
-                      <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-                        <div className="text-[10px] font-bold text-amber-600 uppercase">Nilai Lain (C/D/E)</div>
-                        <div className="text-xl font-bold text-amber-900 mt-1">
-                          {studentMonthlyLogs.filter(j => ['C','D','E'].includes(j.nilai)).length} Kali
-                        </div>
+                    <div className="p-4 bg-sky-50 border border-sky-100 rounded-2xl">
+                      <div className="text-[10px] font-bold text-sky-600 uppercase">Santri Aktif Setor</div>
+                      <div className="text-xl font-bold text-sky-900 mt-1">
+                        {activeStudentCount} / {rekapKelasStudents.length} Santri
                       </div>
                     </div>
 
-                    {/* Monthly Chronology Logs table/timeline */}
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">
-                          Detail Jurnal Bulanan Siswa
+                    <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                      <div className="text-[10px] font-bold text-amber-600 uppercase">Persentase Keaktifan</div>
+                      <div className="text-xl font-bold text-amber-900 mt-1">
+                        {Math.round((activeStudentCount / Math.max(rekapKelasStudents.length, 1)) * 100)}%
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Bar & Student List */}
+                  <div className="bg-white border border-slate-150 p-6 rounded-3xl shadow-xs space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-800">
+                          Daftar Santri & Rekapitulasi Bulan Ini
                         </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Kelas {classes.find(c => String(c.id) === String(selectedKelasId))?.nama || ''} • {selectedProgram === 'tahfidz' ? 'Tahfidz' : 'Dasar'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
                         <button
-                          id="btn-print-monthly"
-                          onClick={handleCetakPDFBulanan}
-                          disabled={studentMonthlyLogs.length === 0}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
-                          title="Cetak Rekap Bulanan ke PDF"
+                          onClick={handleShareWABulananKelas}
+                          disabled={rekapKelasStudents.length === 0}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                          <span>Kirim WA Rekap Kelas</span>
+                        </button>
+                        <button
+                          onClick={handleCetakPDFBulananKelas}
+                          disabled={rekapKelasStudents.length === 0}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
                         >
                           <Printer className="w-3.5 h-3.5" />
-                          <span>Cetak PDF</span>
+                          <span>Cetak PDF Kelas</span>
                         </button>
                       </div>
-
-                      {studentMonthlyLogs.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
-                          Tidak ada laporan setoran siswa ini untuk bulan terpilih.
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {studentMonthlyLogs.map((log, index) => (
-                            <div key={log.id} className="p-4 bg-white border border-slate-150 rounded-2xl shadow-xs space-y-2">
-                              <div className="flex items-center justify-between border-b border-slate-50 pb-2">
-                                <span className="text-[11px] font-mono font-bold text-slate-500">
-                                  📅 {log.tanggal}
-                                </span>
-                                <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] uppercase ${getNilaiBadgeClass(log.nilai)}`}>
-                                  {getNilaiLabel(log.nilai)}
-                                </span>
-                              </div>
-                              <div className="text-xs space-y-1">
-                                <p className="font-bold text-slate-800">
-                                  📖 Materi: <span className="text-emerald-800">{log.materiSetoran}</span>
-                                </p>
-                                {!(log.program === 'tahfidz' || (log.program !== 'dasar' && !!log.kategori)) && (
-                                  <p className="text-slate-500 italic leading-snug">
-                                    🔍 Evaluasi: {log.evaluasiTahsin}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
+
+                    {rekapKelasStudents.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl">
+                        Tidak ada siswa pada kelas dan program ini.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {rekapKelasStudents.map((siswa, idx) => {
+                          const sLogs = classMonthlyLogs.filter(j => String(j.siswaId) === String(siswa.id));
+                          const totalA = sLogs.filter(j => j.nilai === 'A').length;
+                          const totalB = sLogs.filter(j => j.nilai === 'B').length;
+                          const totalLain = sLogs.filter(j => ['C','D','E'].includes(j.nilai)).length;
+                          const lastLog = sLogs.length > 0 ? sLogs[sLogs.length - 1] : null;
+                          const capItem = capaianInputsMap[siswa.id];
+                          const isExpanded = expandedSiswaId === siswa.id;
+
+                          return (
+                            <div key={siswa.id} className="bg-slate-50/70 border border-slate-200 rounded-2xl p-4 transition">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex items-start gap-3">
+                                  <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-800 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                                    {idx + 1}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-extrabold text-slate-800 text-sm">{siswa.nama}</span>
+                                      <span className="text-[10px] font-mono text-slate-400">({siswa.noInduk || '-'})</span>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                      <span className="text-[11px] font-bold text-slate-600">
+                                        Total: <strong className="text-emerald-700">{sLogs.length}x</strong> Setoran
+                                      </span>
+                                      <span className="text-slate-300">•</span>
+                                      <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                                        A: {totalA}
+                                      </span>
+                                      <span className="text-[10px] text-sky-600 font-bold bg-sky-50 px-2 py-0.5 rounded-md border border-sky-100">
+                                        B: {totalB}
+                                      </span>
+                                      {totalLain > 0 && (
+                                        <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
+                                          Lain: {totalLain}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Capaian Preview */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-200/60 text-[11px]">
+                                      <div>
+                                        <span className="text-slate-400 font-medium">Capaian Awal: </span>
+                                        <span className="font-semibold text-slate-700">{capItem?.capaianAwal || '-'}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 font-medium">Capaian Akhir: </span>
+                                        <span className="font-semibold text-emerald-800">{capItem?.capaianAkhir || (lastLog ? lastLog.materiSetoran : '-')}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="shrink-0 flex items-center justify-end">
+                                  <button
+                                    onClick={() => setExpandedSiswaId(isExpanded ? null : siswa.id)}
+                                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 font-bold text-xs rounded-xl transition shadow-2xs flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <span>{isExpanded ? 'Sembunyikan' : 'Detail Setoran'}</span>
+                                    <span className="text-[10px] text-slate-400">({sLogs.length})</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Expanded Individual Logs */}
+                              {isExpanded && (
+                                <div className="mt-4 pt-3 border-t border-slate-200 space-y-2">
+                                  <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                                    Riwayat Setoran Month {selectedBulanMonth}/2026 — {siswa.nama}
+                                  </h5>
+                                  {sLogs.length === 0 ? (
+                                    <div className="p-3 bg-white border border-slate-100 rounded-xl text-center text-xs text-slate-400">
+                                      Belum ada catatan setoran di bulan ini.
+                                    </div>
+                                  ) : (
+                                    sLogs.map(log => (
+                                      <div key={log.id} className="bg-white border border-slate-200/80 p-3 rounded-xl flex items-start justify-between gap-3 text-xs">
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-mono text-[10px] text-slate-400 font-bold">{log.tanggal}</span>
+                                            {log.kategori && (
+                                              <span className="text-[9px] font-bold uppercase bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
+                                                {log.kategori}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="font-bold text-slate-800">{log.materiSetoran}</p>
+                                          {log.evaluasiTahsin && (
+                                            <p className="text-[11px] text-slate-500 italic">Evaluasi: {log.evaluasiTahsin}</p>
+                                          )}
+                                        </div>
+                                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase shrink-0 ${getNilaiBadgeClass(log.nilai)}`}>
+                                          {getNilaiLabel(log.nilai)}
+                                        </span>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-3xl text-slate-400 text-xs">
-                    Silahkan pilih Kelas, Program, dan Siswa di atas untuk memuat laporan bulanan.
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -2946,14 +3472,15 @@ export default function MusyrifDashboard({
       )}
 
       {/* Mobile Bottom Navigation Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden">
-        <div className="grid grid-cols-5 h-16 max-w-md mx-auto">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden overflow-x-auto">
+        <div className="flex items-center justify-around h-16 min-w-full px-1">
           {[
             { id: 'absen_saya', label: 'Absen Saya', icon: UserCheck },
             { id: 'absen_siswa', label: 'Absen Siswa', icon: CheckCircle },
             { id: 'input_siswa', label: 'Input Harian', icon: BookOpen },
+            { id: 'input_capaian_bulan', label: 'Capaian Bulan', icon: FileText },
             { id: 'rekap_hari', label: 'Rekap Harian', icon: Calendar },
-            { id: 'rekap_bulan', label: 'Rekap Bulanan', icon: TrendingUp }
+            { id: 'rekap_bulan', label: 'Rekap Bulan', icon: TrendingUp }
           ].map(tab => {
             const IconComp = tab.icon;
             const isActive = activeTab === tab.id;
@@ -2964,16 +3491,16 @@ export default function MusyrifDashboard({
                   setActiveTab(tab.id as any);
                   setFeedback({ text: '', type: 'success' });
                 }}
-                className={`flex flex-col items-center justify-center gap-1 w-full h-full cursor-pointer transition-colors ${
+                className={`flex flex-col items-center justify-center gap-1 min-w-[56px] px-1 h-full cursor-pointer transition-colors ${
                   isActive 
                     ? 'text-emerald-700 font-extrabold' 
                     : 'text-slate-500 hover:text-slate-900 font-medium'
                 }`}
               >
-                <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-emerald-50 scale-110' : ''}`}>
-                  <IconComp className={`w-5 h-5 ${isActive ? 'text-emerald-700' : 'text-slate-400'}`} />
+                <div className={`p-1 rounded-xl transition-all ${isActive ? 'bg-emerald-50 scale-110' : ''}`}>
+                  <IconComp className={`w-4 h-4 ${isActive ? 'text-emerald-700' : 'text-slate-400'}`} />
                 </div>
-                <span className="text-[9px] tracking-tight leading-none truncate max-w-full px-1">{tab.label}</span>
+                <span className="text-[8.5px] tracking-tight leading-none text-center whitespace-nowrap">{tab.label}</span>
               </button>
             );
           })}

@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabase';
-import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif } from '../types';
+import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenSiswa, AbsenMusyrif, CapaianBulananSiswa } from '../types';
 
 const safeString = (val: any): string => {
   if (!val) return '';
@@ -891,6 +891,117 @@ export async function deleteAbsenSiswa(id: string): Promise<void> {
     } catch (e: any) {
       console.warn("Failed deleting absen siswa in Supabase:", e);
     }
+  }
+}
+
+// CAPAIAN BULANAN SISWA
+const CAPAIAN_BULANAN_KEY = 'mmq_capaian_bulanan_v1';
+
+function loadStoredCapaianBulanan(): CapaianBulananSiswa[] {
+  try {
+    const raw = localStorage.getItem(CAPAIAN_BULANAN_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed loading stored capaian bulanan:", e);
+  }
+  return [];
+}
+
+function saveStoredCapaianBulanan(data: CapaianBulananSiswa[]) {
+  try {
+    localStorage.setItem(CAPAIAN_BULANAN_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed saving stored capaian bulanan:", e);
+  }
+}
+
+let memoryCapaianBulanan: CapaianBulananSiswa[] = loadStoredCapaianBulanan();
+
+export async function getCapaianBulanan(bulan?: string, kelasId?: string): Promise<CapaianBulananSiswa[]> {
+  if (isSupabaseConfigured()) {
+    try {
+      let queryBuilder = supabase.from('capaian_bulanan').select('*').order('updatedAt', { ascending: false });
+      if (bulan) queryBuilder = queryBuilder.eq('bulan', bulan);
+      if (kelasId) queryBuilder = queryBuilder.eq('kelasId', kelasId);
+      const { data, error } = await queryBuilder;
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const dataMap = new Map(data.map(d => [d.id, d]));
+        const merged = [...data];
+        for (const localItem of memoryCapaianBulanan) {
+          if (!dataMap.has(localItem.id)) {
+            merged.push(localItem);
+          }
+        }
+        memoryCapaianBulanan = merged;
+        saveStoredCapaianBulanan(memoryCapaianBulanan);
+      }
+    } catch (e) {
+      console.warn("Supabase getCapaianBulanan error:", e);
+    }
+  }
+
+  let list = [...memoryCapaianBulanan];
+  if (bulan) {
+    list = list.filter(c => c.bulan === bulan);
+  }
+  if (kelasId) {
+    list = list.filter(c => String(c.kelasId) === String(kelasId));
+  }
+  return list;
+}
+
+export async function saveCapaianBulananItem(item: Partial<CapaianBulananSiswa> & { siswaId: string; bulan: string }): Promise<CapaianBulananSiswa> {
+  const existingIdx = memoryCapaianBulanan.findIndex(
+    c => String(c.siswaId) === String(item.siswaId) && c.bulan === item.bulan
+  );
+
+  let newItem: CapaianBulananSiswa;
+  if (existingIdx >= 0) {
+    newItem = {
+      ...memoryCapaianBulanan[existingIdx],
+      ...item,
+      updatedAt: new Date().toISOString()
+    };
+    memoryCapaianBulanan[existingIdx] = newItem;
+  } else {
+    newItem = {
+      id: generateId('cap'),
+      bulan: item.bulan,
+      siswaId: item.siswaId,
+      siswaNama: item.siswaNama || '',
+      noInduk: item.noInduk || '',
+      kelasId: item.kelasId || '',
+      kelasNama: item.kelasNama || '',
+      capaianAwal: item.capaianAwal || '',
+      capaianAkhir: item.capaianAkhir || '',
+      jumlahBarisMurojaah: item.jumlahBarisMurojaah ?? '',
+      catatanMusyrif: item.catatanMusyrif || '',
+      musyrifId: item.musyrifId || '',
+      musyrifNama: item.musyrifNama || '',
+      updatedAt: new Date().toISOString()
+    };
+    memoryCapaianBulanan.unshift(newItem);
+  }
+
+  saveStoredCapaianBulanan(memoryCapaianBulanan);
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { error } = await supabase.from('capaian_bulanan').upsert(newItem);
+      if (error) {
+        console.warn("Supabase saveCapaianBulananItem notice:", error.message);
+      }
+    } catch (e: any) {
+      console.warn("Failed saving capaian bulanan to Supabase:", e);
+    }
+  }
+
+  return newItem;
+}
+
+export async function saveBulkCapaianBulanan(items: (Partial<CapaianBulananSiswa> & { siswaId: string; bulan: string })[]): Promise<void> {
+  for (const item of items) {
+    await saveCapaianBulananItem(item);
   }
 }
 

@@ -77,3 +77,20 @@ export interface AbsenMusyrif {
   fotoUrl?: string;
   status?: 'Proses' | 'Disetujui';
 }
+
+export interface CapaianBulananSiswa {
+  id: string;
+  bulan: string; // YYYY-MM e.g. "2026-08"
+  siswaId: string;
+  siswaNama: string;
+  noInduk: string;
+  kelasId: string;
+  kelasNama: string;
+  capaianAwal: string; // Capaian Awal Bulan
+  capaianAkhir: string; // Capaian Akhir Bulan
+  jumlahBarisMurojaah: string | number; // Jumlah Baris Murojaah
+  catatanMusyrif: string; // Keterangan Catatan Tambahan Musyrif
+  musyrifId?: string;
+  musyrifNama?: string;
+  updatedAt?: string;
+}
