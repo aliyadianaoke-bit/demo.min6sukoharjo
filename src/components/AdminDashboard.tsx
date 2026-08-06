@@ -1406,6 +1406,263 @@ export default function AdminDashboard({
     }, 500);
   };
 
+  // Printable PDF function for Musyrif Attendance Recap
+  const handleCetakPDFRekapAbsenMusyrif = () => {
+    if (filteredAttendances.length === 0) {
+      showFeedback('Tidak ada data absensi musyrif yang dapat dicetak.', 'danger');
+      return;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (!iframeDoc) return;
+
+    const formattedDate = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    // 1. Group by Musyrif for Ringkasan (Summary per Musyrif)
+    const musyrifMap = new Map<string, {
+      nama: string;
+      halaqoh: string;
+      totalAbsen: number;
+      disetujuiCount: number;
+      latestDate: string;
+      latestTime: string;
+    }>();
+
+    filteredAttendances.forEach(a => {
+      const matched = musyrifs.find(m => m.id === a.musyrifId);
+      const key = a.musyrifNama || 'Unknown';
+      const halaqohNama = matched?.halaqohNama || 'Belum Diatur';
+
+      if (!musyrifMap.has(key)) {
+        musyrifMap.set(key, {
+          nama: key,
+          halaqoh: halaqohNama,
+          totalAbsen: 0,
+          disetujuiCount: 0,
+          latestDate: a.tanggal,
+          latestTime: a.waktu
+        });
+      }
+
+      const item = musyrifMap.get(key)!;
+      item.totalAbsen += 1;
+      if (a.status === 'Disetujui') {
+        item.disetujuiCount += 1;
+      }
+      if (a.tanggal > item.latestDate || (a.tanggal === item.latestDate && a.waktu > item.latestTime)) {
+        item.latestDate = a.tanggal;
+        item.latestTime = a.waktu;
+      }
+    });
+
+    const summaryList = Array.from(musyrifMap.values()).sort((a, b) => b.totalAbsen - a.totalAbsen);
+
+    const summaryRowsHtml = summaryList.map((item, idx) => `
+      <tr>
+        <td style="text-align: center; font-weight: bold;">${idx + 1}</td>
+        <td style="font-weight: bold; text-transform: uppercase;">${item.nama}</td>
+        <td><span style="color: #4338ca; font-weight: 600;">${item.halaqoh}</span></td>
+        <td style="text-align: center; font-weight: bold; color: #065f46;">${item.totalAbsen} Kali</td>
+        <td style="text-align: center; font-weight: bold; color: #047857;">${item.disetujuiCount} ACC</td>
+        <td style="text-align: center; font-size: 10px; color: #475569;">${item.latestDate.split('-').reverse().join('/')} (${item.latestTime} WIB)</td>
+      </tr>
+    `).join('');
+
+    // 2. Detail Rows
+    const detailRowsHtml = filteredAttendances.map((a, idx) => {
+      const matched = musyrifs.find(m => m.id === a.musyrifId);
+      const isApproved = a.status === 'Disetujui';
+      let dateDisplay = a.tanggal;
+      try {
+        dateDisplay = new Date(a.tanggal).toLocaleDateString('id-ID', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+      } catch (_) {}
+
+      return `
+        <tr>
+          <td style="text-align: center; font-weight: bold; color: #64748b;">${idx + 1}</td>
+          <td style="font-weight: bold; text-transform: uppercase;">${a.musyrifNama}</td>
+          <td style="color: #4338ca; font-weight: 600;">${matched?.halaqohNama || '-'}</td>
+          <td style="text-align: center;">${a.hari}, ${dateDisplay}</td>
+          <td style="text-align: center; font-family: monospace; font-weight: bold;">${a.waktu} WIB</td>
+          <td style="text-align: center;">
+            <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: 800; font-size: 9px; text-transform: uppercase; ${
+              isApproved 
+                ? 'background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;' 
+                : 'background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a;'
+            }">
+              ${isApproved ? 'ACC (Disetujui)' : 'Proses Verifikasi'}
+            </span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // Filter info description
+    let filterPeriodeStr = 'Semua Riwayat Data';
+    if (absenStartDateFilter && absenEndDateFilter) {
+      filterPeriodeStr = `${absenStartDateFilter.split('-').reverse().join('/')} s/d ${absenEndDateFilter.split('-').reverse().join('/')}`;
+    } else if (absenStartDateFilter) {
+      filterPeriodeStr = `Mulai ${absenStartDateFilter.split('-').reverse().join('/')}`;
+    } else if (absenEndDateFilter) {
+      filterPeriodeStr = `Sampai ${absenEndDateFilter.split('-').reverse().join('/')}`;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Rekap Absensi Musyrif</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 25px; color: #0f172a; font-size: 11px; line-height: 1.4; }
+          .header { text-align: center; border-bottom: 2px solid #0f766e; padding-bottom: 10px; margin-bottom: 16px; }
+          .header h1 { margin: 0; font-size: 18px; color: #0f766e; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+          .header h2 { margin: 3px 0 0 0; font-size: 13px; color: #334155; font-weight: 700; }
+          .meta-box { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 11px; }
+          .meta-item { margin-bottom: 3px; }
+          .section-title { font-size: 12px; font-weight: 800; color: #0f766e; text-transform: uppercase; margin-top: 18px; margin-bottom: 8px; border-left: 3px solid #0f766e; padding-left: 8px; }
+          .report-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 10px; }
+          .report-table th, .report-table td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: middle; }
+          .report-table th { background-color: #f1f5f9; color: #0f766e; font-weight: 800; text-transform: uppercase; font-size: 9px; letter-spacing: 0.3px; }
+          .report-table tr:nth-child(even) { background-color: #f8fafc; }
+          .footer-signature { display: flex; justify-content: space-between; margin-top: 35px; font-size: 11px; page-break-inside: avoid; }
+          .sig-box { width: 200px; text-align: center; }
+          .sig-line { margin-top: 45px; border-top: 1px solid #475569; padding-top: 4px; font-weight: 700; color: #1e293b; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>PROGRAM MUTIARA BANGSA</h1>
+          <h2>LAPORAN REKAPITULASI KEHADIRAN / ABSENSI MUSYRIF</h2>
+        </div>
+
+        <div class="meta-box">
+          <div>
+            <div class="meta-item"><strong>Periode Filter</strong>: ${filterPeriodeStr}</div>
+            <div class="meta-item"><strong>Pencarian Nama</strong>: ${absenSearch || 'Semua Musyrif'}</div>
+          </div>
+          <div>
+            <div class="meta-item"><strong>Total Catatan Absensi</strong>: ${filteredAttendances.length} Log Kehadiran</div>
+            <div class="meta-item"><strong>Musyrif Terdata</strong>: ${summaryList.length} Orang</div>
+            <div class="meta-item"><strong>Tanggal Cetak</strong>: ${formattedDate}</div>
+          </div>
+        </div>
+
+        <div class="section-title">1. Ringkasan Total Kehadiran Per Musyrif</div>
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th style="width: 5%; text-align: center;">No</th>
+              <th style="width: 25%; text-align: left;">Nama Musyrif</th>
+              <th style="width: 25%; text-align: left;">Halaqoh Ampuan</th>
+              <th style="width: 15%; text-align: center;">Total Kehadiran</th>
+              <th style="width: 15%; text-align: center;">Disetujui (ACC)</th>
+              <th style="width: 15%; text-align: center;">Kehadiran Terakhir</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${summaryRowsHtml.length === 0 ? `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">Tidak ada data ringkasan.</td></tr>` : summaryRowsHtml}
+          </tbody>
+        </table>
+
+        <div class="section-title">2. Detail Riwayat Jurnal Kehadiran Musyrif</div>
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th style="width: 5%; text-align: center;">No</th>
+              <th style="width: 25%; text-align: left;">Nama Musyrif</th>
+              <th style="width: 22%; text-align: left;">Halaqoh Ampuan</th>
+              <th style="width: 22%; text-align: center;">Hari & Tanggal</th>
+              <th style="width: 13%; text-align: center;">Waktu</th>
+              <th style="width: 13%; text-align: center;">Status ACC</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${detailRowsHtml.length === 0 ? `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">Tidak ada data detail.</td></tr>` : detailRowsHtml}
+          </tbody>
+        </table>
+
+        <div class="footer-signature">
+          <div class="sig-box">
+            <div>Mengetahui,</div>
+            <div style="font-weight: 700; margin-top: 4px;">Manager Pengajaran Team Qur'an</div>
+            <div class="sig-line">Ust. M. Ridwan Sam, S.Pd, M.Pd.</div>
+          </div>
+          <div class="sig-box">
+            <div>Sukoharjo, ${formattedDate}</div>
+            <div style="font-weight: 700; margin-top: 4px;">Koordinator Musyrif / Admin</div>
+            <div class="sig-line">Pengelola Qur'an</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    iframeDoc.open();
+    iframeDoc.write(htmlContent);
+    iframeDoc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 5000);
+    }, 500);
+  };
+
+  // Export Excel/CSV function for Musyrif Attendance Recap
+  const handleExportExcelAbsenMusyrif = () => {
+    if (filteredAttendances.length === 0) {
+      showFeedback('Tidak ada data absensi musyrif yang dapat di-export.', 'danger');
+      return;
+    }
+
+    const headers = ["No", "Nama Musyrif", "NIM", "Halaqoh Ampuan", "Hari", "Tanggal", "Jam Absen (WIB)", "Status Verifikasi"];
+
+    const rows = filteredAttendances.map((a, idx) => {
+      const matched = musyrifs.find(m => m.id === a.musyrifId);
+      return [
+        idx + 1,
+        `"${(a.musyrifNama || '').replace(/"/g, '""')}"`,
+        `"${(matched?.nim || '').replace(/"/g, '""')}"`,
+        `"${(matched?.halaqohNama || 'N/A').replace(/"/g, '""')}"`,
+        `"${(a.hari || '').replace(/"/g, '""')}"`,
+        `"${a.tanggal}"`,
+        `"${a.waktu} WIB"`,
+        `"${a.status || 'Proses'}"`
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const todayStr = new Date().toISOString().split('T')[0];
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Rekap_Absensi_Musyrif_${todayStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showFeedback('Berhasil mendownload Rekap Absensi Musyrif dalam format Excel (CSV)!');
+  };
+
   // Helper getters to compute totals dynamically
   const getClassStudentCount = (kelasId: string) => {
     return students.filter(s => s.kelasId === kelasId).length;
@@ -2478,19 +2735,42 @@ export default function AdminDashboard({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
                   <h3 className="text-lg font-extrabold text-slate-800">Kelola Absen Musyrif</h3>
-                  <p className="text-xs text-slate-500">Monitor daftar kehadiran, hari, tanggal, waktu, dan verifikasi foto selfie para Musyrif</p>
+                  <p className="text-xs text-slate-500">Monitor daftar kehadiran, hari, tanggal, waktu, verifikasi foto selfie, serta rekapitulasi data musyrif</p>
                 </div>
-                {filteredAttendances.length > 0 && (
+                
+                <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                   <button
-                    onClick={handleApproveAllFilteredAbsen}
-                    disabled={isSaving}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-xs self-start sm:self-auto"
-                    title="Setujui (ACC) seluruh data absensi musyrif yang saat ini tampil berdasarkan filter/pencarian"
+                    onClick={handleCetakPDFRekapAbsenMusyrif}
+                    disabled={filteredAttendances.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                    title="Cetak/Download Laporan Rekap Absensi Musyrif ke PDF"
                   >
-                    <CheckCircle className="w-4 h-4" />
-                    <span>ACC Semua (Tersaring)</span>
+                    <Printer className="w-4 h-4" />
+                    <span>Cetak PDF Rekap</span>
                   </button>
-                )}
+
+                  <button
+                    onClick={handleExportExcelAbsenMusyrif}
+                    disabled={filteredAttendances.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                    title="Download Rekap Absensi Musyrif dalam format Excel (CSV)"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Download Excel</span>
+                  </button>
+
+                  {filteredAttendances.length > 0 && (
+                    <button
+                      onClick={handleApproveAllFilteredAbsen}
+                      disabled={isSaving}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                      title="Setujui (ACC) seluruh data absensi musyrif yang saat ini tampil berdasarkan filter/pencarian"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>ACC Semua (Tersaring)</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Quick Preset Buttons & Filters */}
