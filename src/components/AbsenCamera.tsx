@@ -8,14 +8,23 @@ interface AbsenCameraProps {
 
 const compressImage = (base64Str: string, maxWidth = 480, maxHeight = 480, quality = 0.6): Promise<string> => {
   return new Promise((resolve, reject) => {
+    if (!base64Str || typeof base64Str !== 'string') {
+      reject(new Error('Data gambar tidak valid'));
+      return;
+    }
+
     const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = base64Str;
+    
+    // Only set crossOrigin for remote http/https URLs, NOT for data: URLs
+    if (base64Str.startsWith('http://') || base64Str.startsWith('https://')) {
+      img.crossOrigin = 'anonymous';
+    }
+
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
-        let width = img.width || 480;
-        let height = img.height || 480;
+        let width = img.naturalWidth || img.width || 480;
+        let height = img.naturalHeight || img.height || 480;
 
         if (width > height) {
           if (width > maxWidth) {
@@ -34,7 +43,7 @@ const compressImage = (base64Str: string, maxWidth = 480, maxHeight = 480, quali
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          reject(new Error('Canvas context unavailable'));
+          resolve(base64Str);
           return;
         }
 
@@ -47,15 +56,23 @@ const compressImage = (base64Str: string, maxWidth = 480, maxHeight = 480, quali
         if (compressedDataUrl && compressedDataUrl.startsWith('data:image/')) {
           resolve(compressedDataUrl);
         } else {
-          reject(new Error('Format foto tidak valid'));
+          resolve(base64Str);
         }
       } catch (e) {
-        reject(e);
+        resolve(base64Str);
       }
     };
+
     img.onerror = () => {
-      reject(new Error('Gagal membaca data gambar'));
+      if (base64Str.startsWith('data:image/')) {
+        resolve(base64Str);
+      } else {
+        reject(new Error('Gagal membaca data gambar'));
+      }
     };
+
+    // Attach src AFTER setting up handlers to prevent race condition in cached/data URLs
+    img.src = base64Str;
   });
 };
 
@@ -79,23 +96,29 @@ export default function AbsenCamera({ onCapture, onCancel }: AbsenCameraProps) {
     setIsProcessing(true);
 
     const reader = new FileReader();
-    reader.onloadend = async () => {
+    reader.onload = async () => {
       try {
         const originalBase64 = reader.result as string;
-        let finalImage = await compressImage(originalBase64, 480, 480, 0.6);
-        
-        // If image is still unusually large (>300KB Base64), compress further
-        if (finalImage.length > 400000) {
-          finalImage = await compressImage(finalImage, 320, 320, 0.5);
+        if (!originalBase64 || !originalBase64.startsWith('data:image/')) {
+          throw new Error('Data gambar dari berkas tidak valid.');
         }
 
-        if (finalImage.length > 800000) {
-          throw new Error('Ukuran berkas gambar terlalu besar.');
+        let finalImage = originalBase64;
+        try {
+          finalImage = await compressImage(originalBase64, 480, 480, 0.6);
+          
+          // If image is still unusually large (>400KB Base64), compress further
+          if (finalImage.length > 400000) {
+            finalImage = await compressImage(finalImage, 320, 320, 0.5);
+          }
+        } catch (compressErr) {
+          console.warn('Compress failed, using original base64:', compressErr);
+          finalImage = originalBase64;
         }
 
         setCapturedImage(finalImage);
       } catch (err: any) {
-        console.error('Error compressing image:', err);
+        console.error('Error processing image:', err);
         setErrorMessage(err.message || 'Gagal memproses gambar. Silakan gunakan foto lain atau ambil foto ulang.');
       } finally {
         setIsProcessing(false);
