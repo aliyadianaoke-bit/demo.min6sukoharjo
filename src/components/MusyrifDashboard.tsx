@@ -47,7 +47,7 @@ export default function MusyrifDashboard({
   studentAttendances = [],
   refreshData
 }: MusyrifDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'absen_saya' | 'absen_siswa' | 'input_siswa' | 'rekap_hari' | 'rekap_bulan'>('absen_saya');
+  const [activeTab, setActiveTab] = useState<'absen_saya' | 'absen_siswa' | 'input_siswa' | 'halaqoh_lomba' | 'rekap_hari' | 'rekap_bulan'>('absen_saya');
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState({ text: '', type: 'success' });
   const [showAutoAbsenModal, setShowAutoAbsenModal] = useState(false);
@@ -61,6 +61,8 @@ export default function MusyrifDashboard({
       (m.nama && userNama && m.nama.trim().toLowerCase() === userNama.trim().toLowerCase())
     );
   }, [musyrifs, userId, userNama]);
+
+  const isMengajarLomba = currentMusyrif?.isMengajarLomba === true;
 
   // Filter halaqohs to only those managed by the current Musyrif (robust multi-field fallback)
   const myHalaqohs = useMemo(() => {
@@ -97,7 +99,7 @@ export default function MusyrifDashboard({
   const [showHalaqohActivationModal, setShowHalaqohActivationModal] = useState(false);
   const [tempHalaqohId, setTempHalaqohId] = useState('');
   const [selectedKelasId, setSelectedKelasId] = useState('');
-  const [selectedProgram, setSelectedProgram] = useState<'dasar' | 'tahfidz' | ''>('dasar');
+  const [selectedProgram, setSelectedProgram] = useState<'dasar' | 'tahfidz' | 'Kelas Lomba' | ''>('dasar');
   const [rekapHariTanggal, setRekapHariTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [absenSiswaTanggal, setAbsenSiswaTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [absenSiswaSearch, setAbsenSiswaSearch] = useState('');
@@ -1374,9 +1376,11 @@ export default function MusyrifDashboard({
     return myStudents.filter(s => {
       // Check program
       if (selectedProgram === 'dasar') {
-        if (!(s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz))) return false;
+        if (!(s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba))) return false;
       } else if (selectedProgram === 'tahfidz') {
-        if (!(s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz))) return false;
+        if (!(s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba))) return false;
+      } else if (selectedProgram === 'Kelas Lomba') {
+        if (!(s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba))) return false;
       }
 
       // Check class filter (only if selected)
@@ -1407,14 +1411,19 @@ export default function MusyrifDashboard({
 
     // Filter by selected Program
     if (selectedProgram === 'dasar') {
-      const isStudentMatch = s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+      const isStudentMatch = s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
       if (!isStudentMatch) return false;
-      return j.program === 'dasar' || (j.program !== 'tahfidz' && !j.kategori);
+      return j.program === 'dasar' || (j.program !== 'tahfidz' && j.program !== 'Kelas Lomba' && !j.kategori);
     }
     if (selectedProgram === 'tahfidz') {
-      const isStudentMatch = s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+      const isStudentMatch = s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
       if (!isStudentMatch) return false;
-      return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
+      return j.program === 'tahfidz' || (j.program !== 'dasar' && j.program !== 'Kelas Lomba' && !!j.kategori);
+    }
+    if (selectedProgram === 'Kelas Lomba') {
+      const isStudentMatch = s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+      if (!isStudentMatch) return false;
+      return j.program === 'Kelas Lomba';
     }
     return false;
   });
@@ -1429,10 +1438,13 @@ export default function MusyrifDashboard({
         if (myStudents.length > 0 && !myStudents.some(ms => ms.id === s.id)) return false;
       }
       if (selectedProgram === 'dasar') {
-        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
       }
       if (selectedProgram === 'tahfidz') {
-        return s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz);
+        return s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+      }
+      if (selectedProgram === 'Kelas Lomba') {
+        return s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
       }
       return true;
     }).sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
@@ -1447,9 +1459,11 @@ export default function MusyrifDashboard({
   const studentMonthlyLogs = journals.filter(j => {
     if (String(j.siswaId) !== String(selectedBulanSiswaId) || !j.tanggal.startsWith(selectedYearMonthPrefix)) return false;
     if (selectedProgram === 'tahfidz') {
-      return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
+      return j.program === 'tahfidz' || (j.program !== 'dasar' && j.program !== 'Kelas Lomba' && !!j.kategori);
+    } else if (selectedProgram === 'Kelas Lomba') {
+      return j.program === 'Kelas Lomba';
     } else {
-      return j.program === 'dasar' || (j.program !== 'tahfidz' && !j.kategori);
+      return j.program === 'dasar' || (j.program !== 'tahfidz' && j.program !== 'Kelas Lomba' && !j.kategori);
     }
   });
 
@@ -1534,12 +1548,19 @@ export default function MusyrifDashboard({
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="utf-8">
         <title>Rekap Bulanan Kelas - ${kelasNamaStr}</title>
         <style>
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; color: #1e293b; font-size: 11px; }
-          .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f766e; padding-bottom: 12px; }
-          .header h1 { margin: 0; font-size: 16px; color: #0f766e; font-weight: 800; text-transform: uppercase; }
-          .header h2 { margin: 4px 0 0 0; font-size: 13px; color: #334155; font-weight: 700; }
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+          body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; padding: 25px; color: #1e293b; font-size: 11px; line-height: 1.3; }
+          .header { text-align: center; margin-bottom: 20px; border-bottom: 3px double #0f766e; padding-bottom: 12px; }
+          .header-logo { width: 100%; max-width: 100%; height: auto; max-height: 140px; margin: 0 auto 10px auto; display: block; object-fit: contain; }
+          .header h1 { margin: 0; font-size: 20px; color: #0f766e; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+          .header h2 { margin: 4px 0 0 0; font-size: 13px; color: #334155; font-weight: 600; }
+          .header p { margin: 4px 0 0 0; font-size: 10px; color: #64748b; font-style: italic; }
+          .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.22; z-index: 0; pointer-events: none; width: 520px; max-width: 85%; text-align: center; }
+          .watermark img { width: 100%; height: auto; object-fit: contain; }
+          .header, .meta-container, table, .summary-box, .footer-signature { position: relative; z-index: 1; }
           .meta-container { display: flex; justify-content: space-between; margin-bottom: 15px; background: #f8fafc; padding: 10px 14px; border-radius: 6px; border: 1px solid #e2e8f0; }
           .meta-item { margin-bottom: 3px; font-size: 11px; }
           .report-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
@@ -1549,12 +1570,21 @@ export default function MusyrifDashboard({
           .footer-signature { display: flex; justify-content: space-between; margin-top: 30px; font-size: 11px; page-break-inside: avoid; }
           .sig-box { width: 200px; text-align: center; }
           .sig-line { margin-top: 45px; border-top: 1px solid #475569; padding-top: 4px; font-weight: 700; }
+          @media print {
+            body { padding: 0; }
+            @page { size: A4; margin: 1cm; }
+          }
         </style>
       </head>
       <body>
+        <div class="watermark">
+          <img src="https://lh3.googleusercontent.com/d/1651wKNM5H8EGuDrdBiA82bNKuCE3es0d" alt="Watermark" />
+        </div>
         <div class="header">
+          <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
           <h1>PROGRAM MUTIARA BANGSA</h1>
           <h2>REKAPAN BULANAN SETORAN PER KELAS (${programNamaStr.toUpperCase()})</h2>
+          <p>Mencetak Generasi Qur'ani yang Berakhlaqul Karimah</p>
         </div>
         <div class="meta-container">
           <div>
@@ -1682,6 +1712,7 @@ export default function MusyrifDashboard({
               { id: 'absen_saya', label: 'Absen Saya', icon: UserCheck },
               { id: 'absen_siswa', label: 'Absen Siswa', icon: CheckCircle },
               { id: 'input_siswa', label: 'Input Harian Siswa', icon: BookOpen },
+              ...(isMengajarLomba ? [{ id: 'halaqoh_lomba', label: 'Halaqoh Lomba', icon: Award }] : []),
               { id: 'rekap_hari', label: 'Rekap Harian', icon: Calendar },
               { id: 'rekap_bulan', label: 'Rekap Bulanan', icon: TrendingUp }
             ].map(tab => {
@@ -2185,7 +2216,7 @@ export default function MusyrifDashboard({
                       <select
                         value={selectedProgram}
                         onChange={(e) => {
-                          const programVal = e.target.value as 'dasar' | 'tahfidz' | '';
+                          const programVal = e.target.value as 'dasar' | 'tahfidz' | 'Kelas Lomba' | '';
                           setSelectedProgram(programVal);
                           setSelectedBulanSiswaId('');
                           setSelectedKelasId(''); // Reset kelas
@@ -2196,6 +2227,7 @@ export default function MusyrifDashboard({
                         <option value="">-- Pilih Program --</option>
                         <option value="dasar">Program Dasar</option>
                         <option value="tahfidz">Program Tahfidz</option>
+                        <option value="Kelas Lomba">Program Kelas Lomba</option>
                       </select>
 
                       {/* 2. Pilih Kelas (Hanya tampil setelah program dipilih) */}
@@ -2517,6 +2549,266 @@ export default function MusyrifDashboard({
                   </div>
                 </>
               )}
+            </div>
+          )}
+
+          {/* TAB: HALAQOH LOMBA */}
+          {activeTab === 'halaqoh_lomba' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-amber-100 pb-4 gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-slate-800">
+                      Halaqoh Lomba
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                      <Award className="w-3 h-3 text-amber-600" />
+                      <span>Kelas Lomba</span>
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Pencatatan setoran & rekap santri terpilih yang masuk dalam kategori Kelas Lomba.
+                  </p>
+                </div>
+              </div>
+
+              {/* Stat Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-2xl flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-black shrink-0">
+                    <Award className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-extrabold uppercase text-amber-700 tracking-wider">Total Santri Lomba</div>
+                    <div className="text-lg font-black text-amber-900">{students.filter(s => s.isKelasLomba === true).length} Anak</div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black shrink-0">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider">Setoran Lomba Hari Ini</div>
+                    <div className="text-lg font-black text-emerald-900">
+                      {journals.filter(j => j.tanggal === new Date().toISOString().split('T')[0] && j.program === 'Kelas Lomba').length} Setoran
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-sky-50/60 border border-sky-200/80 rounded-2xl flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-800 flex items-center justify-center font-black shrink-0">
+                    <CheckCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-extrabold uppercase text-sky-700 tracking-wider">Total Rekomendasi Lomba</div>
+                    <div className="text-lg font-black text-sky-900">
+                      {journals.filter(j => j.program === 'Kelas Lomba').length} Catatan
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filter Controls */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="flex flex-col sm:flex-row gap-3 items-center w-full md:w-auto">
+                  <div className="text-xs font-bold text-slate-600 shrink-0 uppercase tracking-wider flex items-center gap-1.5">
+                    <Filter className="w-4 h-4 text-amber-600" />
+                    <span>Pilih Kelas :</span>
+                  </div>
+                  <select
+                    value={selectedKelasId}
+                    onChange={(e) => setSelectedKelasId(e.target.value)}
+                    className="w-full sm:w-48 px-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:ring-2 focus:ring-amber-500 font-bold text-slate-800 shadow-xs"
+                  >
+                    <option value="">-- Semua Kelas --</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.nama}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="w-full md:w-64 relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                    <Search className="w-4 h-4 text-slate-400" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Cari santri kelas lomba..."
+                    value={searchSiswa}
+                    onChange={(e) => setSearchSiswa(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 text-xs rounded-xl focus:ring-2 focus:ring-amber-500 font-bold text-slate-800 placeholder-slate-400 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Student Cards for Kelas Lomba */}
+              <div className="bg-white border border-amber-100 p-6 rounded-3xl shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                    <Award className="w-4 h-4 text-amber-600" />
+                    <span>Daftar Santri Kelas Lomba ({students.filter(s => s.isKelasLomba === true && (!selectedKelasId || String(s.kelasId) === String(selectedKelasId) || s.kelasNama === selectedKelasId) && (!searchSiswa.trim() || s.nama.toLowerCase().includes(searchSiswa.toLowerCase()) || (s.noInduk && s.noInduk.toLowerCase().includes(searchSiswa.toLowerCase())))).length} Anak)</span>
+                  </h4>
+                </div>
+
+                {(() => {
+                  const lombaList = students.filter(s => {
+                    if (s.isKelasLomba !== true) return false;
+                    if (selectedKelasId && String(s.kelasId) !== String(selectedKelasId) && s.kelasNama !== selectedKelasId) return false;
+                    if (searchSiswa.trim()) {
+                      const term = searchSiswa.toLowerCase();
+                      if (!(s.nama.toLowerCase().includes(term) || (s.noInduk && s.noInduk.toLowerCase().includes(term)) || (s.kelasNama && s.kelasNama.toLowerCase().includes(term)))) {
+                        return false;
+                      }
+                    }
+                    return true;
+                  });
+
+                  if (lombaList.length === 0) {
+                    return (
+                      <div className="p-12 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl space-y-2">
+                        <AlertCircle className="w-8 h-8 text-amber-400 mx-auto opacity-60" />
+                        <p className="font-semibold text-slate-600">Tidak ada santri kelas lomba ditemukan.</p>
+                        <p className="text-[11px] text-slate-400">
+                          Pastikan siswa sudah ditandai sebagai <span className="font-bold">Kelas Lomba</span> oleh Admin di menu Kelola Siswa.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {lombaList.map((siswa, sIndex) => {
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        const lombaLogsHariIni = journals.filter(j => 
+                          String(j.siswaId) === String(siswa.id) && 
+                          j.tanggal === todayStr && 
+                          j.program === 'Kelas Lomba'
+                        );
+                        const hasLombaInputToday = lombaLogsHariIni.length > 0;
+
+                        const lombaHistory = journals.filter(j => 
+                          String(j.siswaId) === String(siswa.id) && 
+                          j.program === 'Kelas Lomba'
+                        ).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+
+                        return (
+                          <div 
+                            key={siswa.id} 
+                            className={`p-5 rounded-2xl border transition duration-150 flex flex-col justify-between space-y-4 ${
+                              hasLombaInputToday 
+                                ? 'bg-amber-50/40 border-amber-200 shadow-xs' 
+                                : 'bg-white border-slate-200 hover:border-amber-300 hover:shadow-xs'
+                            }`}
+                          >
+                            <div className="space-y-3">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <span className="text-[10px] font-mono font-bold text-slate-400">#{sIndex + 1} | INDUK: {siswa.noInduk}</span>
+                                  <h5 className="font-extrabold text-sm text-slate-800 uppercase leading-snug mt-0.5">{siswa.nama}</h5>
+                                  <div className="flex flex-wrap gap-1.5 mt-1">
+                                    <span className="text-[9px] bg-amber-100 border border-amber-300 font-extrabold px-1.5 py-0.5 rounded text-amber-900 flex items-center gap-1">
+                                      <Award className="w-2.5 h-2.5 text-amber-700" />
+                                      <span>Kelas Lomba</span>
+                                    </span>
+                                    {siswa.halaqohNama && (
+                                      <span className="text-[9px] bg-slate-100 border border-slate-200 font-bold px-1.5 py-0.5 rounded text-slate-700">
+                                        {siswa.halaqohNama}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className="text-[10px] bg-slate-100 border border-slate-200 rounded-lg font-bold px-2 py-0.5 text-slate-600 block self-start">
+                                  {siswa.kelasNama || 'N/A'}
+                                </span>
+                              </div>
+
+                              {/* Today / Latest Setoran Lomba Display */}
+                              {lombaLogsHariIni.length > 0 ? (
+                                <div className="space-y-1.5 bg-white p-3 rounded-xl border border-amber-200">
+                                  <div className="text-[10px] font-bold text-amber-800 uppercase tracking-wider flex items-center justify-between">
+                                    <span>Sudah Input Setoran Lomba Hari Ini:</span>
+                                    <span className="text-[9px] font-extrabold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded">✓ Terdata</span>
+                                  </div>
+                                  {lombaLogsHariIni.map(log => (
+                                    <div key={log.id} className="p-2 bg-slate-50 rounded-lg border border-slate-200 text-[11px] flex justify-between items-center gap-2">
+                                      <div className="truncate flex-1">
+                                        <span className="font-bold text-slate-900 block">{log.materiSetoran}</span>
+                                        {log.evaluasiTahsin && (
+                                          <span className="text-[10px] text-slate-500 italic block truncate">{log.evaluasiTahsin}</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${getNilaiBadgeClass(log.nilai)}`}>
+                                          {log.nilai}
+                                        </span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteLog(log.id);
+                                          }}
+                                          className="text-slate-400 hover:text-rose-600 p-0.5 transition cursor-pointer"
+                                          title="Hapus"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                lombaHistory.length > 0 ? (
+                                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                                    <div className="flex items-center justify-between text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                                      <span>Setoran Lomba Terakhir</span>
+                                      <span className="font-mono text-slate-600">{lombaHistory[0].tanggal}</span>
+                                    </div>
+                                    <p className="font-bold text-slate-800">Materi: <span className="text-slate-950 font-black">{lombaHistory[0].materiSetoran}</span></p>
+                                    <p className="text-[10px] text-slate-500 italic">Evaluasi: {lombaHistory[0].evaluasiTahsin || '-'}</p>
+                                  </div>
+                                ) : (
+                                  <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400 italic">
+                                    Belum ada catatan setoran lomba.
+                                  </div>
+                                )
+                              )}
+                            </div>
+
+                            <div className="pt-2">
+                              <button
+                                onClick={() => {
+                                  setTargetSiswa(siswa);
+                                  setSelectedProgram('Kelas Lomba');
+                                  setSelectedKategori('Setoran');
+                                  const existingToday = lombaLogsHariIni[0];
+                                  if (existingToday) {
+                                    setFormTanggal(existingToday.tanggal);
+                                    setFormMateri(existingToday.materiSetoran);
+                                    setFormEvaluasi(existingToday.evaluasiTahsin);
+                                    setFormNilai(existingToday.nilai);
+                                    setEditingJournalId(existingToday.id);
+                                  } else {
+                                    setFormTanggal(new Date().toISOString().split('T')[0]);
+                                    setFormMateri('');
+                                    setFormEvaluasi('');
+                                    setFormNilai('A');
+                                    setEditingJournalId(null);
+                                  }
+                                  setShowInputModal(true);
+                                }}
+                                className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold rounded-xl transition cursor-pointer shadow-xs hover:shadow-md flex items-center justify-center gap-1.5"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>{hasLombaInputToday ? 'Edit Setoran Lomba' : 'Catat Setoran Lomba'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
@@ -3332,11 +3624,12 @@ export default function MusyrifDashboard({
 
       {/* Mobile Bottom Navigation Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/80 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden">
-        <div className="grid grid-cols-5 h-16 max-w-md mx-auto">
+        <div className={`grid h-16 max-w-md mx-auto ${isMengajarLomba ? 'grid-cols-6' : 'grid-cols-5'}`}>
           {[
             { id: 'absen_saya', label: 'Absen Saya', icon: UserCheck },
             { id: 'absen_siswa', label: 'Absen Siswa', icon: CheckCircle },
             { id: 'input_siswa', label: 'Input Harian', icon: BookOpen },
+            ...(isMengajarLomba ? [{ id: 'halaqoh_lomba', label: 'Halaqoh Lomba', icon: Award }] : []),
             { id: 'rekap_hari', label: 'Rekap Harian', icon: Calendar },
             { id: 'rekap_bulan', label: 'Rekap Bulanan', icon: TrendingUp }
           ].map(tab => {

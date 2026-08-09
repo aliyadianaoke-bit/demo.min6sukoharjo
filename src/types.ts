@@ -21,6 +21,7 @@ export interface Siswa {
   halaqohNama: string;
   isKelasDasar?: boolean;
   isKelasTahfidz?: boolean;
+  isKelasLomba?: boolean;
 }
 
 export interface Musyrif {
@@ -32,6 +33,7 @@ export interface Musyrif {
   halaqohId: string; // Associated Halaqoh ID
   halaqohNama: string;
   statusAkses?: 'aktif' | 'nonaktif';
+  isMengajarLomba?: boolean;
 }
 
 export type NilaiEvaluasi = 'A' | 'B' | 'C' | 'D' | 'E'; // Mumtaz (A), Jayyid Jidid (B), Jayyid (C), Maqbul (D), Rosib (E)
@@ -48,7 +50,7 @@ export interface CatatanHarian {
   evaluasiTahsin: string; // Custom feedback
   nilai: NilaiEvaluasi;
   kategori?: 'Murojaah' | 'Ziyadah' | 'Setoran' | 'Tugas Tilawah';
-  program?: 'dasar' | 'tahfidz';
+  program?: 'dasar' | 'tahfidz' | 'Kelas Lomba';
 }
 
 export interface AbsenSiswa {

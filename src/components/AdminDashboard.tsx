@@ -83,6 +83,7 @@ export default function AdminDashboard({
   const [siswaHalaqohId, setSiswaHalaqohId] = useState('');
   const [siswaIsKelasDasar, setSiswaIsKelasDasar] = useState(false);
   const [siswaIsKelasTahfidz, setSiswaIsKelasTahfidz] = useState(false);
+  const [siswaIsKelasLomba, setSiswaIsKelasLomba] = useState(false);
 
   // 4. Musyrif Form
   const [musyrifNim, setMusyrifNim] = useState('');
@@ -91,6 +92,7 @@ export default function AdminDashboard({
   const [musyrifUsername, setMusyrifUsername] = useState('');
   const [musyrifPassword, setMusyrifPassword] = useState('');
   const [musyrifStatusAkses, setMusyrifStatusAkses] = useState<'aktif' | 'nonaktif'>('aktif');
+  const [musyrifIsMengajarLomba, setMusyrifIsMengajarLomba] = useState(false);
 
   // Password / User Visibility Toggle States
   const [visibleMusyrifUsernames, setVisibleMusyrifUsernames] = useState<Record<string, boolean>>({});
@@ -276,11 +278,13 @@ export default function AdminDashboard({
     setSiswaHalaqohId('');
     setSiswaIsKelasDasar(false);
     setSiswaIsKelasTahfidz(false);
+    setSiswaIsKelasLomba(false);
     setMusyrifNim('');
     setMusyrifNama('');
     setMusyrifHalaqohId('');
     setMusyrifUsername('');
     setMusyrifPassword('');
+    setMusyrifIsMengajarLomba(false);
   };
 
   // ----------------------------------------------------
@@ -402,7 +406,8 @@ export default function AdminDashboard({
         halaqohId: siswaHalaqohId || '',
         halaqohNama: hq ? hq.nama : 'Belum Ada Halaqoh',
         isKelasDasar: siswaIsKelasDasar,
-        isKelasTahfidz: siswaIsKelasTahfidz
+        isKelasTahfidz: siswaIsKelasTahfidz,
+        isKelasLomba: siswaIsKelasLomba
       };
 
       if (modalType === 'add') {
@@ -535,6 +540,7 @@ export default function AdminDashboard({
       
       const dasarRaw = cols[4] ? cols[4].trim().toLowerCase() : '';
       const tahfidzRaw = cols[5] ? cols[5].trim().toLowerCase() : '';
+      const lombaRaw = cols[6] ? cols[6].trim().toLowerCase() : '';
 
       const rowErrors: string[] = [];
       if (!nama) rowErrors.push("Nama Lengkap wajib diisi.");
@@ -594,9 +600,11 @@ export default function AdminDashboard({
       // Programs
       let isKelasDasar = false;
       let isKelasTahfidz = false;
+      let isKelasLomba = false;
 
       const hasDasarCol = cols[4] !== undefined && cols[4] !== null && cols[4].trim() !== '';
       const hasTahfidzCol = cols[5] !== undefined && cols[5] !== null && cols[5].trim() !== '';
+      const hasLombaCol = cols[6] !== undefined && cols[6] !== null && cols[6].trim() !== '';
 
       if (hasDasarCol) {
         isKelasDasar = dasarRaw === 'y' || dasarRaw === 'ya' || dasarRaw === 'yes' || dasarRaw === '1' || dasarRaw === 'true';
@@ -614,6 +622,14 @@ export default function AdminDashboard({
         }
       }
 
+      if (hasLombaCol) {
+        isKelasLomba = lombaRaw === 'y' || lombaRaw === 'ya' || lombaRaw === 'yes' || lombaRaw === '1' || lombaRaw === 'true';
+      } else {
+        if (existingStudent) {
+          isKelasLomba = existingStudent.isKelasLomba || false;
+        }
+      }
+
       processed.push({
         noInduk,
         nama,
@@ -621,8 +637,10 @@ export default function AdminDashboard({
         halaqohNamaRaw,
         isKelasDasar,
         isKelasTahfidz,
+        isKelasLomba,
         hasDasarCol,
         hasTahfidzCol,
+        hasLombaCol,
         action,
         matchedClassId,
         matchedClassName,
@@ -639,11 +657,11 @@ export default function AdminDashboard({
   };
 
   const handleDownloadTemplate = () => {
-    const headers = "No Induk;Nama;Nama Kelas;Nama Halaqoh;Kelas Dasar (Y/T);Kelas Tahfidz (Y/T)";
+    const headers = "No Induk;Nama;Nama Kelas;Nama Halaqoh;Kelas Dasar (Y/T);Kelas Tahfidz (Y/T);Kelas Lomba (Y/T)";
     const exampleRows = [
-      "1001;Ahmad Fauzan;Kelas 1A;Halaqoh Al-Mulk;Y;T",
-      "1002;Muhammad Ibrahim;Kelas 2B;Halaqoh An-Naba;T;Y",
-      "1003;Siti Aminah;Kelas 3A;;Y;Y"
+      "1001;Ahmad Fauzan;Kelas 1A;Halaqoh Al-Mulk;Y;T;T",
+      "1002;Muhammad Ibrahim;Kelas 2B;Halaqoh An-Naba;T;Y;T",
+      "1003;Siti Aminah;Kelas 3A;;Y;Y;Y"
     ];
     // Add sep=; instruction line for Excel compatibility
     const csvContent = "\ufeff" + ["sep=;", headers, ...exampleRows].join("\n"); // UTF-8 BOM for Excel
@@ -729,7 +747,8 @@ export default function AdminDashboard({
               ? row.matchedHalaqohName 
               : (existingStudent.halaqohNama || 'Belum Ada Halaqoh'),
             isKelasDasar: row.hasDasarCol ? row.isKelasDasar : (existingStudent.isKelasDasar || false),
-            isKelasTahfidz: row.hasTahfidzCol ? row.isKelasTahfidz : (existingStudent.isKelasTahfidz || false)
+            isKelasTahfidz: row.hasTahfidzCol ? row.isKelasTahfidz : (existingStudent.isKelasTahfidz || false),
+            isKelasLomba: row.hasLombaCol ? row.isKelasLomba : (existingStudent.isKelasLomba || false)
           };
 
           await updateStudent(existingStudent.id, payload);
@@ -750,7 +769,8 @@ export default function AdminDashboard({
             halaqohId: row.matchedHalaqohId || '',
             halaqohNama: row.matchedHalaqohName || 'Belum Ada Halaqoh',
             isKelasDasar: row.isKelasDasar || false,
-            isKelasTahfidz: row.isKelasTahfidz || false
+            isKelasTahfidz: row.isKelasTahfidz || false,
+            isKelasLomba: row.isKelasLomba || false
           };
 
           const newStudent = await addStudent(payload);
@@ -843,7 +863,8 @@ export default function AdminDashboard({
         username: musyrifUsername.trim(),
         halaqohId: musyrifHalaqohId || '',
         halaqohNama: hq ? hq.nama : 'Belum Ditentukan',
-        statusAkses: musyrifStatusAkses
+        statusAkses: musyrifStatusAkses,
+        isMengajarLomba: musyrifIsMengajarLomba
       };
       
       if (musyrifPassword.trim()) {
@@ -1529,10 +1550,16 @@ export default function AdminDashboard({
         <meta charset="utf-8">
         <title>Rekap Absensi Musyrif</title>
         <style>
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 25px; color: #0f172a; font-size: 11px; line-height: 1.4; }
-          .header { text-align: center; border-bottom: 2px solid #0f766e; padding-bottom: 10px; margin-bottom: 16px; }
-          .header h1 { margin: 0; font-size: 18px; color: #0f766e; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
-          .header h2 { margin: 3px 0 0 0; font-size: 13px; color: #334155; font-weight: 700; }
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+          body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; padding: 25px; color: #1e293b; font-size: 11px; line-height: 1.3; }
+          .header { text-align: center; border-bottom: 3px double #0f766e; padding-bottom: 12px; margin-bottom: 20px; }
+          .header-logo { width: 100%; max-width: 100%; height: auto; max-height: 140px; margin: 0 auto 10px auto; display: block; object-fit: contain; }
+          .header h1 { margin: 0; font-size: 20px; color: #0f766e; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+          .header h2 { margin: 4px 0 0 0; font-size: 13px; color: #334155; font-weight: 600; }
+          .header p { margin: 4px 0 0 0; font-size: 10px; color: #64748b; font-style: italic; }
+          .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.22; z-index: 0; pointer-events: none; width: 520px; max-width: 85%; text-align: center; }
+          .watermark img { width: 100%; height: auto; object-fit: contain; }
+          .header, .meta-box, .section-title, table, .summary-box, .footer-signature { position: relative; z-index: 1; }
           .meta-box { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 11px; }
           .meta-item { margin-bottom: 3px; }
           .section-title { font-size: 12px; font-weight: 800; color: #0f766e; text-transform: uppercase; margin-top: 18px; margin-bottom: 8px; border-left: 3px solid #0f766e; padding-left: 8px; }
@@ -1543,12 +1570,21 @@ export default function AdminDashboard({
           .footer-signature { display: flex; justify-content: space-between; margin-top: 35px; font-size: 11px; page-break-inside: avoid; }
           .sig-box { width: 200px; text-align: center; }
           .sig-line { margin-top: 45px; border-top: 1px solid #475569; padding-top: 4px; font-weight: 700; color: #1e293b; }
+          @media print {
+            body { padding: 0; }
+            @page { size: A4; margin: 1cm; }
+          }
         </style>
       </head>
       <body>
+        <div class="watermark">
+          <img src="https://lh3.googleusercontent.com/d/1651wKNM5H8EGuDrdBiA82bNKuCE3es0d" alt="Watermark" />
+        </div>
         <div class="header">
+          <img src="https://lh3.googleusercontent.com/d/1kr1Sw04azCLhACIUu0rqCLY0ch2LplxJ" alt="Logo Mutiara Bangsa" class="header-logo" />
           <h1>PROGRAM MUTIARA BANGSA</h1>
           <h2>LAPORAN REKAPITULASI KEHADIRAN / ABSENSI MUSYRIF</h2>
+          <p>Mencetak Generasi Qur'ani yang Berakhlaqul Karimah</p>
         </div>
 
         <div class="meta-box">
@@ -1677,6 +1713,7 @@ export default function AdminDashboard({
     if (s.halaqohId !== selectedLaporanHalaqohId) return false;
     if (selectedLaporanKelasTipe === 'dasar') return s.isKelasDasar === true;
     if (selectedLaporanKelasTipe === 'tahfidz') return s.isKelasTahfidz === true;
+    if (selectedLaporanKelasTipe === 'lomba' || selectedLaporanKelasTipe === 'Kelas Lomba') return s.isKelasLomba === true;
     return true;
   });
   const reportStudentIds = reportStudents.map(s => s.id);
@@ -2180,7 +2217,12 @@ export default function AdminDashboard({
                                       Tahfidz
                                     </span>
                                   )}
-                                  {!sys.isKelasDasar && !sys.isKelasTahfidz && (
+                                  {sys.isKelasLomba && (
+                                    <span className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg text-[10px] font-bold">
+                                      Lomba
+                                    </span>
+                                  )}
+                                  {!sys.isKelasDasar && !sys.isKelasTahfidz && !sys.isKelasLomba && (
                                     <span className="text-slate-400 italic text-[11px]">-</span>
                                   )}
                                 </div>
@@ -2207,6 +2249,7 @@ export default function AdminDashboard({
                                       setSiswaHalaqohId(sys.halaqohId);
                                       setSiswaIsKelasDasar(sys.isKelasDasar || false);
                                       setSiswaIsKelasTahfidz(sys.isKelasTahfidz || false);
+                                      setSiswaIsKelasLomba(sys.isKelasLomba || false);
                                     }}
                                     className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition"
                                   >
@@ -2399,7 +2442,16 @@ export default function AdminDashboard({
                           <tr key={m.id} className="hover:bg-slate-50/50">
                             <td className="py-3 px-4 font-mono font-bold text-slate-400">{i + 1}</td>
                             <td className="py-3 px-4 font-mono font-semibold text-slate-800">{m.nim}</td>
-                            <td className="py-3 px-4 font-bold text-slate-900">{m.nama}</td>
+                            <td className="py-3 px-4 font-bold text-slate-900">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span>{m.nama}</span>
+                                {m.isMengajarLomba && (
+                                  <span className="text-[9px] bg-amber-50 border border-amber-200 text-amber-800 font-extrabold px-1.5 py-0.5 rounded-md">
+                                    Kelas Lomba
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="py-3 px-4 font-mono font-medium text-slate-800">
                               <div className="flex items-center gap-1.5">
                                 <span>{visibleMusyrifUsernames[m.id] === false ? '••••••••' : m.username}</span>
@@ -2468,6 +2520,7 @@ export default function AdminDashboard({
                                     setMusyrifUsername(m.username);
                                     setMusyrifPassword(m.password || '');
                                     setMusyrifStatusAkses(m.statusAkses || 'aktif');
+                                    setMusyrifIsMengajarLomba(m.isMengajarLomba || false);
                                   }}
                                   className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition"
                                 >
@@ -2611,9 +2664,10 @@ export default function AdminDashboard({
                       onChange={(e) => setSelectedLaporanKelasTipe(e.target.value)}
                       className="w-full sm:w-44 px-3 py-2 bg-white border border-slate-250 text-xs rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
                     >
-                      <option value="semua">-- Semua (Dasar & Tahfidz) --</option>
+                      <option value="semua">-- Semua Program --</option>
                       <option value="dasar">Kelas Dasar</option>
                       <option value="tahfidz">Kelas Tahfidz</option>
+                      <option value="Kelas Lomba">Kelas Lomba</option>
                     </select>
                   </div>
 
@@ -3790,7 +3844,7 @@ export default function AdminDashboard({
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-600 block">Program Kelas</label>
-                    <div className="flex gap-4 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="flex flex-wrap gap-4 p-3 bg-slate-50 border border-slate-200 rounded-xl">
                       <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
                         <input
                           type="checkbox"
@@ -3808,6 +3862,15 @@ export default function AdminDashboard({
                           className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
                         />
                         <span>Kelas Tahfidz</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={siswaIsKelasLomba}
+                          onChange={(e) => setSiswaIsKelasLomba(e.target.checked)}
+                          className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span>Kelas Lomba</span>
                       </label>
                     </div>
                   </div>
@@ -3923,6 +3986,21 @@ export default function AdminDashboard({
                           className="text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
                         />
                         <span className="text-rose-600 font-extrabold">● NONAKTIF (Dilarang Login)</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 pb-2 border-t border-slate-100 pt-3">
+                    <label className="text-xs font-bold text-slate-600 block">Mengajar Kelas Lomba</label>
+                    <div className="flex items-center gap-4 p-2.5 bg-amber-50/60 border border-amber-200 rounded-xl">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={musyrifIsMengajarLomba}
+                          onChange={(e) => setMusyrifIsMengajarLomba(e.target.checked)}
+                          className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span className="text-amber-800 font-extrabold">Ya, Pengajar Mengajar Kelas Lomba</span>
                       </label>
                     </div>
                   </div>

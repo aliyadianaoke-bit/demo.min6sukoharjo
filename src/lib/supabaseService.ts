@@ -397,7 +397,13 @@ export async function addMusyrif(item: Omit<Musyrif, 'id'>): Promise<Musyrif> {
 
   if (isSupabaseConfigured()) {
     try {
-      const { error } = await supabase.from('musyrif').insert(newItem);
+      let { error } = await supabase.from('musyrif').insert(newItem);
+      if (error && (error.message?.includes('isMengajarLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase musyrif table missing optional columns, retrying insert without optional boolean flags...");
+        const { isMengajarLomba, ...cleanItem } = newItem as any;
+        const retryResult = await supabase.from('musyrif').insert(cleanItem);
+        error = retryResult.error;
+      }
       if (error) {
         console.warn("Supabase addMusyrif notice:", error.message);
       }
@@ -414,7 +420,13 @@ export async function updateMusyrif(id: string, item: Partial<Musyrif>): Promise
 
   if (isSupabaseConfigured()) {
     try {
-      const { error } = await supabase.from('musyrif').update(item).eq('id', id);
+      let { error } = await supabase.from('musyrif').update(item).eq('id', id);
+      if (error && (error.message?.includes('isMengajarLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase musyrif table missing optional columns, retrying update without optional boolean flags...");
+        const { isMengajarLomba, ...cleanItem } = item as any;
+        const retryResult = await supabase.from('musyrif').update(cleanItem).eq('id', id);
+        error = retryResult.error;
+      }
       if (error) {
         console.warn("Supabase updateMusyrif notice:", error.message);
       }
@@ -474,9 +486,9 @@ export async function addStudent(item: Omit<Siswa, 'id'>): Promise<Siswa> {
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('students').insert(newItem);
-      if (error && (error.message?.includes('isKelasDasar') || error.message?.includes('isKelasTahfidz') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+      if (error && (error.message?.includes('isKelasDasar') || error.message?.includes('isKelasTahfidz') || error.message?.includes('isKelasLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
         console.warn("Supabase students table missing optional columns, retrying insert without optional boolean flags...");
-        const { isKelasDasar, isKelasTahfidz, ...cleanItem } = newItem as any;
+        const { isKelasDasar, isKelasTahfidz, isKelasLomba, ...cleanItem } = newItem as any;
         const retryResult = await supabase.from('students').insert(cleanItem);
         error = retryResult.error;
       }
@@ -497,9 +509,9 @@ export async function updateStudent(id: string, item: Partial<Siswa>): Promise<v
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('students').update(item).eq('id', id);
-      if (error && (error.message?.includes('isKelasDasar') || error.message?.includes('isKelasTahfidz') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+      if (error && (error.message?.includes('isKelasDasar') || error.message?.includes('isKelasTahfidz') || error.message?.includes('isKelasLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
         console.warn("Supabase students table missing optional columns, retrying update without optional boolean flags...");
-        const { isKelasDasar, isKelasTahfidz, ...cleanItem } = item as any;
+        const { isKelasDasar, isKelasTahfidz, isKelasLomba, ...cleanItem } = item as any;
         const retryResult = await supabase.from('students').update(cleanItem).eq('id', id);
         error = retryResult.error;
       }
@@ -533,13 +545,13 @@ export function formatJournalFromDb(j: any): CatatanHarian {
   let evaluasiTahsin = safeString(j.evaluasiTahsin);
   let materiSetoran = safeString(j.materiSetoran);
 
-  const metaRegex = /\[PROG:(dasar|tahfidz)\|KAT:(Murojaah|Ziyadah|Setoran|Tugas Tilawah)\]\s*/;
+  const metaRegex = /\[PROG:(dasar|tahfidz|Kelas Lomba)\|KAT:(Murojaah|Ziyadah|Setoran|Tugas Tilawah)\]\s*/;
   const matchEval = evaluasiTahsin.match(metaRegex);
   const matchMat = materiSetoran.match(metaRegex);
   const match = matchEval || matchMat;
 
   if (match) {
-    if (!program) program = match[1] as 'dasar' | 'tahfidz';
+    if (!program) program = match[1] as 'dasar' | 'tahfidz' | 'Kelas Lomba';
     if (!kategori) kategori = match[2] as 'Murojaah' | 'Ziyadah' | 'Setoran' | 'Tugas Tilawah';
     evaluasiTahsin = evaluasiTahsin.replace(metaRegex, '').trim();
     materiSetoran = materiSetoran.replace(metaRegex, '').trim();
