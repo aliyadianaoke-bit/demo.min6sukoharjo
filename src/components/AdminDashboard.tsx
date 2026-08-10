@@ -93,6 +93,7 @@ export default function AdminDashboard({
   const [musyrifPassword, setMusyrifPassword] = useState('');
   const [musyrifStatusAkses, setMusyrifStatusAkses] = useState<'aktif' | 'nonaktif'>('aktif');
   const [musyrifIsMengajarLomba, setMusyrifIsMengajarLomba] = useState(false);
+  const [musyrifIsMengajarTahfidz, setMusyrifIsMengajarTahfidz] = useState(false);
 
   // Password / User Visibility Toggle States
   const [visibleMusyrifUsernames, setVisibleMusyrifUsernames] = useState<Record<string, boolean>>({});
@@ -285,6 +286,7 @@ export default function AdminDashboard({
     setMusyrifUsername('');
     setMusyrifPassword('');
     setMusyrifIsMengajarLomba(false);
+    setMusyrifIsMengajarTahfidz(false);
   };
 
   // ----------------------------------------------------
@@ -864,7 +866,8 @@ export default function AdminDashboard({
         halaqohId: musyrifHalaqohId || '',
         halaqohNama: hq ? hq.nama : 'Belum Ditentukan',
         statusAkses: musyrifStatusAkses,
-        isMengajarLomba: musyrifIsMengajarLomba
+        isMengajarLomba: musyrifIsMengajarLomba,
+        isMengajarTahfidz: musyrifIsMengajarTahfidz
       };
       
       if (musyrifPassword.trim()) {
@@ -2351,6 +2354,8 @@ export default function AdminDashboard({
                     setMusyrifUsername('');
                     setMusyrifPassword('');
                     setMusyrifStatusAkses('aktif');
+                    setMusyrifIsMengajarLomba(false);
+                    setMusyrifIsMengajarTahfidz(false);
                   }}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer self-start sm:self-center shadow-2xs"
                 >
@@ -2445,6 +2450,11 @@ export default function AdminDashboard({
                             <td className="py-3 px-4 font-bold text-slate-900">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span>{m.nama}</span>
+                                {m.isMengajarTahfidz && (
+                                  <span className="text-[9px] bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded-md">
+                                    Pengampu Tahfidz
+                                  </span>
+                                )}
                                 {m.isMengajarLomba && (
                                   <span className="text-[9px] bg-amber-50 border border-amber-200 text-amber-800 font-extrabold px-1.5 py-0.5 rounded-md">
                                     Kelas Lomba
@@ -2521,6 +2531,7 @@ export default function AdminDashboard({
                                     setMusyrifPassword(m.password || '');
                                     setMusyrifStatusAkses(m.statusAkses || 'aktif');
                                     setMusyrifIsMengajarLomba(m.isMengajarLomba || false);
+                                    setMusyrifIsMengajarTahfidz(m.isMengajarTahfidz || false);
                                   }}
                                   className="p-1.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition"
                                 >
@@ -3986,6 +3997,21 @@ export default function AdminDashboard({
                           className="text-rose-600 focus:ring-rose-500 w-4 h-4 cursor-pointer"
                         />
                         <span className="text-rose-600 font-extrabold">● NONAKTIF (Dilarang Login)</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 pb-2 border-t border-slate-100 pt-3">
+                    <label className="text-xs font-bold text-slate-600 block">Pengampu Program Tahfidz</label>
+                    <div className="flex items-center gap-4 p-2.5 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={musyrifIsMengajarTahfidz}
+                          onChange={(e) => setMusyrifIsMengajarTahfidz(e.target.checked)}
+                          className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span className="text-emerald-800 font-extrabold">Ya, Musyrif/Pengajar Pengampu Tahfidz</span>
                       </label>
                     </div>
                   </div>

@@ -398,9 +398,9 @@ export async function addMusyrif(item: Omit<Musyrif, 'id'>): Promise<Musyrif> {
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('musyrif').insert(newItem);
-      if (error && (error.message?.includes('isMengajarLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
-        console.warn("Supabase musyrif table missing optional columns, retrying insert without optional boolean flags...");
-        const { isMengajarLomba, ...cleanItem } = newItem as any;
+      if (error && (error.message?.includes('isMengajar') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase musyrif table missing optional boolean columns, retrying insert without optional flags...");
+        const { isMengajarLomba, isMengajarTahfidz, isMengajarDasar, ...cleanItem } = newItem as any;
         const retryResult = await supabase.from('musyrif').insert(cleanItem);
         error = retryResult.error;
       }
@@ -421,9 +421,9 @@ export async function updateMusyrif(id: string, item: Partial<Musyrif>): Promise
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('musyrif').update(item).eq('id', id);
-      if (error && (error.message?.includes('isMengajarLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
-        console.warn("Supabase musyrif table missing optional columns, retrying update without optional boolean flags...");
-        const { isMengajarLomba, ...cleanItem } = item as any;
+      if (error && (error.message?.includes('isMengajar') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase musyrif table missing optional boolean columns, retrying update without optional flags...");
+        const { isMengajarLomba, isMengajarTahfidz, isMengajarDasar, ...cleanItem } = item as any;
         const retryResult = await supabase.from('musyrif').update(cleanItem).eq('id', id);
         error = retryResult.error;
       }
@@ -573,6 +573,10 @@ export function formatJournalFromDb(j: any): CatatanHarian {
     }
   }
 
+  if (!program) {
+    program = kategori ? 'tahfidz' : 'dasar';
+  }
+
   return {
     ...j,
     id: String(j.id || ''),
@@ -617,18 +621,21 @@ export async function getJournals(limitNum = 200): Promise<CatatanHarian[]> {
 }
 
 export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<CatatanHarian> {
-  const metaTag = (item.kategori || item.program) 
-    ? `[PROG:${item.program || 'tahfidz'}|KAT:${item.kategori || 'Setoran'}] ` 
-    : '';
+  const prog = item.program || (item.kategori ? 'tahfidz' : 'dasar');
+  const kat = item.kategori || (prog === 'tahfidz' ? 'Setoran' : undefined);
+
+  const metaTag = `[PROG:${prog}|KAT:${kat || 'Setoran'}] `;
 
   let evaluasi = item.evaluasiTahsin || 'Lancar, terus tingkatkan.';
-  if (metaTag && !evaluasi.includes('[PROG:')) {
+  if (!evaluasi.includes('[PROG:')) {
     evaluasi = `${metaTag}${evaluasi}`;
   }
 
   const rawItem: CatatanHarian = { 
     id: generateId('cat'), 
     ...item, 
+    program: prog,
+    ...(kat ? { kategori: kat } : {}),
     evaluasiTahsin: evaluasi 
   };
 
@@ -643,15 +650,21 @@ export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<Catat
 
   if (isSupabaseConfigured()) {
     try {
-      let { error } = await supabase.from('catatan_harian').insert(rawItem);
-      if (error && (error.message?.includes('kategori') || error.message?.includes('program') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
-        console.warn("Supabase catatan_harian table missing optional columns, retrying insert without kategori/program...");
-        const { kategori, program, ...cleanItem } = rawItem as any;
-        const retryResult = await supabase.from('catatan_harian').insert(cleanItem);
-        error = retryResult.error;
-      }
+      const cleanItem: any = {};
+      Object.keys(rawItem).forEach(k => {
+        if ((rawItem as any)[k] !== undefined) {
+          cleanItem[k] = (rawItem as any)[k];
+        }
+      });
+
+      let { error } = await supabase.from('catatan_harian').insert(cleanItem);
       if (error) {
-        console.warn("Supabase addJournal notice:", error.message);
+        console.warn("Supabase addJournal first try error:", error.message);
+        const { kategori, program, ...fallbackItem } = cleanItem;
+        const retryResult = await supabase.from('catatan_harian').insert(fallbackItem);
+        if (retryResult.error) {
+          console.warn("Supabase addJournal fallback notice:", retryResult.error.message);
+        }
       }
     } catch (e: any) {
       console.warn("Failed adding journal to Supabase:", e);
@@ -662,26 +675,33 @@ export async function addJournal(item: Omit<CatatanHarian, 'id'>): Promise<Catat
 }
 
 export async function updateJournal(id: string, item: Partial<CatatanHarian>): Promise<void> {
-  let evaluasi = item.evaluasiTahsin;
-  if (item.kategori || item.program) {
-    const metaTag = `[PROG:${item.program || 'tahfidz'}|KAT:${item.kategori || 'Setoran'}] `;
-    if (!evaluasi) {
-      const existing = memoryJournals.find(j => j.id === id);
-      evaluasi = existing?.evaluasiTahsin || 'Lancar, terus tingkatkan.';
-    }
-    if (!evaluasi.includes('[PROG:')) {
-      evaluasi = `${metaTag}${evaluasi}`;
-    }
+  const existing = memoryJournals.find(j => j.id === id);
+  const prog = item.program || existing?.program || (item.kategori || existing?.kategori ? 'tahfidz' : 'dasar');
+  const kat = item.kategori || existing?.kategori || (prog === 'tahfidz' ? 'Setoran' : undefined);
+
+  let evaluasi = item.evaluasiTahsin || existing?.evaluasiTahsin || 'Lancar, terus tingkatkan.';
+  const metaTag = `[PROG:${prog}|KAT:${kat || 'Setoran'}] `;
+  if (!evaluasi.includes('[PROG:')) {
+    evaluasi = `${metaTag}${evaluasi}`;
   }
 
-  const rawUpdate = {
+  const rawUpdate: any = {
     ...item,
-    ...(evaluasi ? { evaluasiTahsin: evaluasi } : {})
+    program: prog,
+    ...(kat ? { kategori: kat } : {}),
+    evaluasiTahsin: evaluasi
   };
+
+  const cleanUpdate: any = {};
+  Object.keys(rawUpdate).forEach(k => {
+    if (rawUpdate[k] !== undefined) {
+      cleanUpdate[k] = rawUpdate[k];
+    }
+  });
 
   memoryJournals = memoryJournals.map(j => {
     if (j.id === id) {
-      return formatJournalFromDb({ ...j, ...rawUpdate });
+      return formatJournalFromDb({ ...j, ...cleanUpdate });
     }
     return j;
   });
@@ -689,15 +709,14 @@ export async function updateJournal(id: string, item: Partial<CatatanHarian>): P
 
   if (isSupabaseConfigured()) {
     try {
-      let { error } = await supabase.from('catatan_harian').update(rawUpdate).eq('id', id);
-      if (error && (error.message?.includes('kategori') || error.message?.includes('program') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
-        console.warn("Supabase catatan_harian table missing optional columns, retrying update without kategori/program...");
-        const { kategori, program, ...cleanItem } = rawUpdate as any;
-        const retryResult = await supabase.from('catatan_harian').update(cleanItem).eq('id', id);
-        error = retryResult.error;
-      }
+      let { error } = await supabase.from('catatan_harian').update(cleanUpdate).eq('id', id);
       if (error) {
-        console.warn("Supabase updateJournal notice:", error.message);
+        console.warn("Supabase updateJournal first try error:", error.message);
+        const { kategori, program, ...fallbackUpdate } = cleanUpdate;
+        const retryResult = await supabase.from('catatan_harian').update(fallbackUpdate).eq('id', id);
+        if (retryResult.error) {
+          console.warn("Supabase updateJournal fallback notice:", retryResult.error.message);
+        }
       }
     } catch (e: any) {
       console.warn("Failed updating journal in Supabase:", e);

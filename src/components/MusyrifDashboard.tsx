@@ -58,7 +58,16 @@ export default function MusyrifDashboard({
     return musyrifs.find(m => 
       String(m.id) === String(userId) || 
       m.username === userId || 
-      (m.nama && userNama && m.nama.trim().toLowerCase() === userNama.trim().toLowerCase())
+      (m.nama && userNama && (
+        m.nama.trim().toLowerCase() === userNama.trim().toLowerCase() ||
+        m.nama.trim().toLowerCase().includes(userNama.trim().toLowerCase()) ||
+        userNama.trim().toLowerCase().includes(m.nama.trim().toLowerCase())
+      )) ||
+      (m.username && userNama && (
+        m.username.trim().toLowerCase() === userNama.trim().toLowerCase() ||
+        m.username.trim().toLowerCase().includes(userNama.trim().toLowerCase()) ||
+        userNama.trim().toLowerCase().includes(m.username.trim().toLowerCase())
+      ))
     );
   }, [musyrifs, userId, userNama]);
 
@@ -456,24 +465,22 @@ export default function MusyrifDashboard({
     if (!targetSiswa || !formMateri.trim()) return;
     setIsSaving(true);
     try {
+      const activeHalaqohId = targetSiswa.halaqohId || selectedHalaqohId || myHalaqohs[0]?.id || currentMusyrif?.halaqohId || '';
+      const activeProgram = selectedProgram || 'dasar';
+
       const payload: any = {
         tanggal: formTanggal,
-        siswaId: targetSiswa.id,
+        siswaId: String(targetSiswa.id),
         siswaNama: targetSiswa.nama,
-        noInduk: targetSiswa.noInduk,
-        kelasNama: targetSiswa.kelasNama,
-        halaqohId: targetSiswa.halaqohId,
+        noInduk: targetSiswa.noInduk || '',
+        kelasNama: targetSiswa.kelasNama || '',
+        halaqohId: activeHalaqohId,
         materiSetoran: formMateri.trim(),
         evaluasiTahsin: formEvaluasi.trim() || 'Lancar, terus tingkatkan.',
-        nilai: formNilai
+        nilai: formNilai,
+        program: activeProgram,
+        kategori: selectedKategori || (activeProgram === 'tahfidz' ? 'Setoran' : undefined)
       };
-
-      if (selectedKategori) {
-        payload.kategori = selectedKategori;
-      }
-      if (selectedProgram) {
-        payload.program = selectedProgram;
-      }
 
       // Check if there is already an entry for this student, category, and date
       let finalJournalId = editingJournalId;
@@ -483,7 +490,7 @@ export default function MusyrifDashboard({
           const logProgram = j.program || (j.kategori ? 'tahfidz' : 'dasar');
           const logKategori = j.kategori || (logProgram === 'tahfidz' ? 'Setoran' : undefined);
 
-          if (selectedProgram && logProgram !== selectedProgram) return false;
+          if (activeProgram && logProgram !== activeProgram) return false;
           if (selectedKategori) {
             return logKategori === selectedKategori;
           } else {
@@ -2296,11 +2303,14 @@ export default function MusyrifDashboard({
                               // Find if there is a setoran entry today
                               const todayStr = new Date().toISOString().split('T')[0];
                               const logsHariIni = journals.filter(j => {
-                                if (String(j.siswaId) !== String(siswa.id) || j.tanggal !== todayStr) return false;
+                                if (String(j.siswaId) !== String(siswa.id)) return false;
+                                if (j.tanggal !== todayStr && j.tanggal !== formTanggal) return false;
                                 if (selectedProgram === 'tahfidz') {
-                                  return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
+                                  return j.program === 'tahfidz' || (j.program !== 'dasar' && j.program !== 'Kelas Lomba' && !!j.kategori);
+                                } else if (selectedProgram === 'Kelas Lomba') {
+                                  return j.program === 'Kelas Lomba';
                                 } else {
-                                  return j.program === 'dasar' || (j.program !== 'tahfidz' && !j.kategori);
+                                  return j.program === 'dasar' || (j.program !== 'tahfidz' && j.program !== 'Kelas Lomba');
                                 }
                               });
                               const logHariIni = logsHariIni[0]; // for compatibility with 'dasar' program
