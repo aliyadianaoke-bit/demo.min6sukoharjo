@@ -556,10 +556,13 @@ export default function MusyrifDashboard({
   };
 
   const handleShareWA = async () => {
-    if (!selectedKelasId || !selectedProgram) return;
-    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId));
-    const kelasNama = activeKelasObj?.nama || 'N/A';
-    const programLabel = selectedProgram === 'dasar' ? 'Dasar' : 'Tahfidz';
+    if (!selectedProgram) {
+      showFeedback('Pilih program terlebih dahulu (Program Dasar, Tahfidz, atau Kelas Lomba).', 'danger');
+      return;
+    }
+    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId) || c.nama === selectedKelasId);
+    const kelasNama = activeKelasObj?.nama || (selectedKelasId ? selectedKelasId : 'Semua Kelas');
+    const programLabel = selectedProgram === 'dasar' ? 'Dasar' : selectedProgram === 'tahfidz' ? 'Tahfidz' : 'Kelas Lomba';
 
     const formattedDate = new Date(rekapHariTanggal).toLocaleDateString('id-ID', {
       day: 'numeric',
@@ -576,7 +579,7 @@ export default function MusyrifDashboard({
       'Tugas Tilawah': 4
     };
 
-    const uniqueStudentsWithLogs = new Set(dailyRecapLogs.map(l => l.siswaId)).size;
+    const uniqueStudentsWithLogs = new Set(dailyRecapLogs.map(l => l.siswaId || l.siswaNama)).size;
 
     let text = `*REKAP HARIAN KELAS ${kelasNama.toUpperCase()} (${programLabel.toUpperCase()})*\n`;
     text += `*Program Mutiara Bangsa*\n\n`;
@@ -590,7 +593,11 @@ export default function MusyrifDashboard({
       text += `_Tidak ada santri di kelas ini._\n`;
     } else {
       sortedStudents.forEach((siswa, idx) => {
-        const studentLogs = dailyRecapLogs.filter(j => String(j.siswaId) === String(siswa.id));
+        const studentLogs = dailyRecapLogs.filter(j => 
+          String(j.siswaId) === String(siswa.id) ||
+          (j.siswaNama && siswa.nama && j.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase()) ||
+          (j.noInduk && siswa.noInduk && j.noInduk.trim() === siswa.noInduk.trim())
+        );
 
         text += `*${idx + 1}. ${siswa.nama.toUpperCase()}* (No Induk: ${siswa.noInduk || '-'})\n`;
         if (studentLogs.length > 0) {
@@ -622,7 +629,10 @@ export default function MusyrifDashboard({
           });
           text += `\n`;
         } else {
-          const att = localStudentAttendances.find(a => String(a.siswaId) === String(siswa.id) && a.tanggal === rekapHariTanggal);
+          const att = localStudentAttendances.find(a => 
+            (String(a.siswaId) === String(siswa.id) || (a.siswaNama && siswa.nama && a.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase())) && 
+            a.tanggal === rekapHariTanggal
+          );
           const attStatus = att ? att.status : 'Belum Absen';
           const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
           text += `• *Status*: _${displayStatus}_\n\n`;
@@ -649,10 +659,13 @@ export default function MusyrifDashboard({
   };
 
   const handleCetakPDF = () => {
-    if (!selectedKelasId || !selectedProgram) return;
-    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId));
-    const kelasNama = activeKelasObj?.nama || 'N/A';
-    const programLabel = selectedProgram === 'dasar' ? 'Dasar' : 'Tahfidz';
+    if (!selectedProgram) {
+      showFeedback('Pilih program terlebih dahulu.', 'danger');
+      return;
+    }
+    const activeKelasObj = classes.find(c => String(c.id) === String(selectedKelasId) || c.nama === selectedKelasId);
+    const kelasNama = activeKelasObj?.nama || (selectedKelasId ? selectedKelasId : 'Semua Kelas');
+    const programLabel = selectedProgram === 'dasar' ? 'Dasar' : selectedProgram === 'tahfidz' ? 'Tahfidz' : 'Kelas Lomba';
 
     const iframe = document.createElement('iframe');
     iframe.style.position = 'absolute';
@@ -680,7 +693,11 @@ export default function MusyrifDashboard({
     };
 
     const tableRowsHtml = sortedStudents.map((siswa, index) => {
-      const studentLogs = dailyRecapLogs.filter(j => String(j.siswaId) === String(siswa.id));
+      const studentLogs = dailyRecapLogs.filter(j => 
+        String(j.siswaId) === String(siswa.id) ||
+        (j.siswaNama && siswa.nama && j.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase()) ||
+        (j.noInduk && siswa.noInduk && j.noInduk.trim() === siswa.noInduk.trim())
+      );
       
       if (studentLogs.length > 0) {
         const sortedLogs = [...studentLogs].sort((a, b) => {
@@ -1407,56 +1424,81 @@ export default function MusyrifDashboard({
   }, [myStudents, selectedProgram, selectedKelasId, searchSiswa]);
 
   // Filter journals for "Rekap Harian" based on class, program, and date
-  const dailyRecapLogs = journals.filter(j => {
-    if (j.tanggal !== rekapHariTanggal) return false;
-    
-    // Find student in students list
-    const s = students.find(siswa => String(siswa.id) === String(j.siswaId));
-    if (!s) return false;
+  const dailyRecapLogs = useMemo(() => {
+    return journals.filter(j => {
+      if (j.tanggal !== rekapHariTanggal) return false;
+      
+      // Find student in students list (robust ID / name matching)
+      const s = students.find(siswa => 
+        String(siswa.id) === String(j.siswaId) ||
+        (j.siswaNama && siswa.nama && j.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase()) ||
+        (j.noInduk && siswa.noInduk && j.noInduk.trim() === siswa.noInduk.trim())
+      );
 
-    // Filter by selected Class
-    if (selectedKelasId && String(s.kelasId) !== String(selectedKelasId) && s.kelasNama !== selectedKelasId) return false;
+      // Filter by selected Class (if specified)
+      if (selectedKelasId) {
+        const selClass = classes.find(c => String(c.id) === String(selectedKelasId) || c.nama === selectedKelasId);
+        const selClassName = selClass ? selClass.nama : selectedKelasId;
 
-    // Filter by selected Program
-    if (selectedProgram === 'dasar') {
-      const isStudentMatch = s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
-      if (!isStudentMatch) return false;
-      return j.program === 'dasar' || (j.program !== 'tahfidz' && j.program !== 'Kelas Lomba' && !j.kategori);
-    }
-    if (selectedProgram === 'tahfidz') {
-      const isStudentMatch = s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
-      if (!isStudentMatch) return false;
-      return j.program === 'tahfidz' || (j.program !== 'dasar' && j.program !== 'Kelas Lomba' && !!j.kategori);
-    }
-    if (selectedProgram === 'Kelas Lomba') {
-      const isStudentMatch = s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
-      if (!isStudentMatch) return false;
-      return j.program === 'Kelas Lomba';
-    }
-    return false;
-  });
+        const matchesClass = s ? (
+          String(s.kelasId) === String(selectedKelasId) ||
+          s.kelasNama === selectedKelasId ||
+          (selClassName && s.kelasNama === selClassName)
+        ) : (
+          j.kelasNama === selectedKelasId || (selClassName && j.kelasNama === selClassName)
+        );
+
+        if (!matchesClass) return false;
+      }
+
+      // Filter by selected Program
+      if (selectedProgram === 'dasar') {
+        return j.program === 'dasar' || (!j.program && !j.kategori) || (j.program !== 'tahfidz' && j.program !== 'Kelas Lomba' && !j.kategori);
+      }
+      if (selectedProgram === 'tahfidz') {
+        return j.program === 'tahfidz' || !!j.kategori;
+      }
+      if (selectedProgram === 'Kelas Lomba') {
+        return j.program === 'Kelas Lomba';
+      }
+
+      return true;
+    });
+  }, [journals, rekapHariTanggal, students, selectedKelasId, classes, selectedProgram]);
 
   // All students belonging to the selected class/program or defaulting to myStudents
   const rekapKelasStudents = useMemo(() => {
     return students.filter(s => {
-      if (selectedKelasId && String(s.kelasId) !== String(selectedKelasId) && s.kelasNama !== selectedKelasId) {
-        return false;
+      if (selectedKelasId) {
+        const selClass = classes.find(c => String(c.id) === String(selectedKelasId) || c.nama === selectedKelasId);
+        const selClassName = selClass ? selClass.nama : selectedKelasId;
+
+        const matchesClass = String(s.kelasId) === String(selectedKelasId) ||
+          s.kelasNama === selectedKelasId ||
+          (selClassName && s.kelasNama === selClassName);
+
+        if (!matchesClass) return false;
       }
+
       if (!selectedKelasId) {
         if (myStudents.length > 0 && !myStudents.some(ms => ms.id === s.id)) return false;
       }
+
       if (selectedProgram === 'dasar') {
-        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        const hasLog = journals.some(j => j.tanggal === rekapHariTanggal && (String(j.siswaId) === String(s.id) || (j.siswaNama && s.nama && j.siswaNama.trim().toLowerCase() === s.nama.trim().toLowerCase())) && (j.program === 'dasar' || (!j.program && !j.kategori)));
+        return s.isKelasDasar === true || hasLog || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
       }
       if (selectedProgram === 'tahfidz') {
-        return s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        const hasLog = journals.some(j => j.tanggal === rekapHariTanggal && (String(j.siswaId) === String(s.id) || (j.siswaNama && s.nama && j.siswaNama.trim().toLowerCase() === s.nama.trim().toLowerCase())) && (j.program === 'tahfidz' || !!j.kategori));
+        return s.isKelasTahfidz === true || hasLog || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
       }
       if (selectedProgram === 'Kelas Lomba') {
-        return s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        const hasLog = journals.some(j => j.tanggal === rekapHariTanggal && (String(j.siswaId) === String(s.id) || (j.siswaNama && s.nama && j.siswaNama.trim().toLowerCase() === s.nama.trim().toLowerCase())) && j.program === 'Kelas Lomba');
+        return s.isKelasLomba === true || hasLog || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
       }
       return true;
     }).sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
-  }, [students, selectedKelasId, myStudents, selectedProgram]);
+  }, [students, selectedKelasId, classes, myStudents, selectedProgram, journals, rekapHariTanggal]);
 
   // Students available for selection in "Rekap Bulanan" & "Rekap Harian"
   const selectBulanStudents = rekapKelasStudents;
@@ -2886,6 +2928,7 @@ export default function MusyrifDashboard({
                     <option value="">-- Pilih Program --</option>
                     <option value="dasar">Program Dasar</option>
                     <option value="tahfidz">Program Tahfidz</option>
+                    {isMengajarLomba && <option value="Kelas Lomba">Program Kelas Lomba</option>}
                   </select>
                 </div>
 
@@ -2901,18 +2944,18 @@ export default function MusyrifDashboard({
               </div>
 
               <div className="bg-white border border-slate-150 p-6 rounded-3xl shadow-xs">
-                {selectedKelasId && selectedProgram ? (
+                {selectedProgram ? (
                   <div className="space-y-4">
                     <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
                         <h4 className="text-xs font-bold text-emerald-900 uppercase">Rekap Hasil Setoran Santri</h4>
                         <div className="text-emerald-700 text-xs mt-0.5">
-                          Kelas: <strong>{classes.find(c => c.id === selectedKelasId)?.nama}</strong> | Program: <strong>{selectedProgram === 'dasar' ? 'Dasar' : 'Tahfidz'}</strong> | Tanggal: <strong>{rekapHariTanggal}</strong>
+                          Kelas: <strong>{classes.find(c => String(c.id) === String(selectedKelasId))?.nama || (selectedKelasId ? selectedKelasId : 'Semua Kelas')}</strong> | Program: <strong>{selectedProgram === 'dasar' ? 'Dasar' : selectedProgram === 'tahfidz' ? 'Tahfidz' : 'Kelas Lomba'}</strong> | Tanggal: <strong>{rekapHariTanggal}</strong>
                         </div>
                       </div>
                       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
                         <div className="text-xs font-bold text-emerald-900">
-                          Total Diinput: <strong>{new Set(dailyRecapLogs.map(l => l.siswaId)).size} dari {selectBulanStudents.length} Siswa</strong> ({dailyRecapLogs.length} Input)
+                          Total Diinput: <strong>{new Set(dailyRecapLogs.map(l => l.siswaId || l.siswaNama)).size} dari {selectBulanStudents.length} Siswa</strong> ({dailyRecapLogs.length} Input)
                         </div>
                         <div className="flex gap-2 w-full sm:w-auto">
                           <button
@@ -2961,7 +3004,11 @@ export default function MusyrifDashboard({
                             </tr>
                           ) : (
                             selectBulanStudents.map((siswa, index) => {
-                              const studentLogs = dailyRecapLogs.filter(j => String(j.siswaId) === String(siswa.id));
+                              const studentLogs = dailyRecapLogs.filter(j => 
+                                String(j.siswaId) === String(siswa.id) ||
+                                (j.siswaNama && siswa.nama && j.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase()) ||
+                                (j.noInduk && siswa.noInduk && j.noInduk.trim() === siswa.noInduk.trim())
+                              );
                               const categoryOrderMap: Record<string, number> = {
                                 'Murojaah': 1,
                                 'Ziyadah': 2,
