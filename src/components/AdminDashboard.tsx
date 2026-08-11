@@ -1709,13 +1709,20 @@ export default function AdminDashboard({
   };
 
   // Prepare reports data
-  const reportStudents = students.filter(s => {
-    if (s.halaqohId !== selectedLaporanHalaqohId) return false;
-    if (selectedLaporanKelasTipe === 'dasar') return s.isKelasDasar === true;
-    if (selectedLaporanKelasTipe === 'tahfidz') return s.isKelasTahfidz === true;
-    if (selectedLaporanKelasTipe === 'lomba' || selectedLaporanKelasTipe === 'Kelas Lomba') return s.isKelasLomba === true;
-    return true;
-  });
+  const reportStudents = useMemo(() => {
+    const seen = new Set<string>();
+    return students.filter(s => {
+      if (s.halaqohId !== selectedLaporanHalaqohId) return false;
+      if (selectedLaporanKelasTipe === 'dasar' && s.isKelasDasar !== true) return false;
+      if (selectedLaporanKelasTipe === 'tahfidz' && s.isKelasTahfidz !== true) return false;
+      if ((selectedLaporanKelasTipe === 'lomba' || selectedLaporanKelasTipe === 'Kelas Lomba') && s.isKelasLomba !== true) return false;
+
+      const key = String(s.id) || (s.nama ? s.nama.trim().toLowerCase() : '');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [students, selectedLaporanHalaqohId, selectedLaporanKelasTipe]);
   const reportStudentIds = reportStudents.map(s => s.id);
   const reportJournals = journals.filter(j => 
     reportStudentIds.includes(j.siswaId) && 

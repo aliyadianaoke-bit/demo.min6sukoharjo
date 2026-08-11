@@ -487,7 +487,12 @@ export default function MusyrifDashboard({
       let finalJournalId = editingJournalId;
       if (!finalJournalId) {
         const dupLog = journals.find(j => {
-          if (String(j.siswaId) !== String(targetSiswa.id) || j.tanggal !== formTanggal) return false;
+          const matchesSiswa = String(j.siswaId) === String(targetSiswa.id) ||
+            (j.siswaNama && targetSiswa.nama && j.siswaNama.trim().toLowerCase() === targetSiswa.nama.trim().toLowerCase()) ||
+            (j.noInduk && targetSiswa.noInduk && j.noInduk.trim() === targetSiswa.noInduk.trim());
+
+          if (!matchesSiswa || j.tanggal !== formTanggal) return false;
+
           const logProgram = j.program || (j.kategori ? 'tahfidz' : 'dasar');
           const logKategori = j.kategori || (logProgram === 'tahfidz' ? 'Setoran' : undefined);
 
@@ -1365,8 +1370,13 @@ export default function MusyrifDashboard({
 
   // All students belonging to this Musyrif's managed halaqohs (filtered to selected halaqoh if active)
   const myStudents = useMemo(() => {
+    const seen = new Set<string>();
     return students
       .filter(s => {
+        const key = String(s.id) || (s.nama ? s.nama.trim().toLowerCase() : '');
+        if (seen.has(key)) return false;
+        seen.add(key);
+
         if (selectedHalaqohId) {
           if (String(s.halaqohId) === String(selectedHalaqohId)) return true;
           const targetHq = halaqohs.find(h => String(h.id) === String(selectedHalaqohId));
@@ -1434,7 +1444,7 @@ export default function MusyrifDashboard({
 
   // Filter journals for "Rekap Harian" based on class, program, and date
   const dailyRecapLogs = useMemo(() => {
-    return journals.filter(j => {
+    const rawLogs = journals.filter(j => {
       if (j.tanggal !== rekapHariTanggal) return false;
       
       // Find student in students list (robust ID / name matching)
@@ -1473,20 +1483,46 @@ export default function MusyrifDashboard({
 
       return true;
     });
+
+    // Deduplicate exact journal logs (same student + date + program + category + materiSetoran)
+    const uniqueLogs: CatatanHarian[] = [];
+    const seenLogKeys = new Set<string>();
+
+    rawLogs.forEach(l => {
+      const sId = String(l.siswaId || l.siswaNama || '').trim().toLowerCase();
+      const prog = l.program || (l.kategori ? 'tahfidz' : 'dasar');
+      const kat = l.kategori || (prog === 'tahfidz' ? 'Setoran' : '');
+      const mat = (l.materiSetoran || '').trim().toLowerCase();
+      const key = `${sId}_${l.tanggal}_${prog}_${kat}_${mat}`;
+
+      if (!seenLogKeys.has(key)) {
+        seenLogKeys.add(key);
+        uniqueLogs.push(l);
+      }
+    });
+
+    return uniqueLogs;
   }, [journals, rekapHariTanggal, students, selectedKelasId, classes, selectedProgram]);
 
   // All students belonging to the selected class/program or defaulting to myStudents
   const rekapKelasStudents = useMemo(() => {
-    // 1. Base list from students array
-    const baseList = students.filter(s => {
-      // Check if student has a daily log for this date; if so, ALWAYS include them in the rekap
-      const hasDailyLog = dailyRecapLogs.some(j => 
-        String(j.siswaId) === String(s.id) ||
-        (j.siswaNama && s.nama && j.siswaNama.trim().toLowerCase() === s.nama.trim().toLowerCase()) ||
-        (j.noInduk && s.noInduk && j.noInduk.trim() === s.noInduk.trim())
-      );
-      if (hasDailyLog) return true;
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    const baseList: Siswa[] = [];
 
+    const addUnique = (s: Siswa) => {
+      const idKey = String(s.id);
+      const nameKey = s.nama ? s.nama.trim().toLowerCase() : '';
+      if (idKey && seenIds.has(idKey)) return;
+      if (nameKey && seenNames.has(nameKey)) return;
+
+      if (idKey) seenIds.add(idKey);
+      if (nameKey) seenNames.add(nameKey);
+      baseList.push(s);
+    };
+
+    // 1. Base list from students array matching class and program
+    students.forEach(s => {
       // Filter by selected Class (if specified)
       if (selectedKelasId) {
         const selClass = classes.find(c => String(c.id) === String(selectedKelasId) || c.nama === selectedKelasId);
@@ -1496,36 +1532,39 @@ export default function MusyrifDashboard({
           s.kelasNama === selectedKelasId ||
           (selClassName && s.kelasNama === selClassName);
 
-        if (!matchesClass) return false;
-      }
-
-      // If no class selected, filter by myStudents
-      if (!selectedKelasId) {
-        if (myStudents.length > 0 && !myStudents.some(ms => String(ms.id) === String(s.id))) return false;
+        if (!matchesClass) return;
+      } else {
+        // If no class selected, filter by myStudents if present
+        if (myStudents.length > 0 && !myStudents.some(ms => String(ms.id) === String(s.id))) return;
       }
 
       // Filter by program
       if (selectedProgram === 'dasar') {
-        return s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        const isMatch = s.isKelasDasar === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        if (!isMatch) return;
+      } else if (selectedProgram === 'tahfidz') {
+        const isMatch = s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        if (!isMatch) return;
+      } else if (selectedProgram === 'Kelas Lomba') {
+        const isMatch = s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        if (!isMatch) return;
       }
-      if (selectedProgram === 'tahfidz') {
-        return s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
-      }
-      if (selectedProgram === 'Kelas Lomba') {
-        return s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
-      }
-      return true;
+
+      addUnique(s);
     });
 
-    // 2. Add virtual student objects for any dailyRecapLogs student not in baseList
+    // 2. Also add any student from dailyRecapLogs if they aren't added yet
     dailyRecapLogs.forEach(j => {
-      const exists = baseList.some(s => 
-        String(s.id) === String(j.siswaId) ||
-        (j.siswaNama && s.nama && j.siswaNama.trim().toLowerCase() === s.nama.trim().toLowerCase()) ||
-        (j.noInduk && s.noInduk && j.noInduk.trim() === s.noInduk.trim())
+      const origS = students.find(st => 
+        String(st.id) === String(j.siswaId) ||
+        (j.siswaNama && st.nama && j.siswaNama.trim().toLowerCase() === st.nama.trim().toLowerCase()) ||
+        (j.noInduk && st.noInduk && j.noInduk.trim() === st.noInduk.trim())
       );
-      if (!exists) {
-        baseList.push({
+
+      if (origS) {
+        addUnique(origS);
+      } else {
+        addUnique({
           id: j.siswaId || `virt_${j.id}`,
           nama: j.siswaNama || 'Santri',
           noInduk: j.noInduk || '-',
