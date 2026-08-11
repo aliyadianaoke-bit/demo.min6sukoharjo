@@ -219,12 +219,12 @@ export default function App() {
 
       if (targetState === 'admin') {
         const [listAbsMus, listKls, listHq, listSis, listJrn, listAbsSis] = await Promise.all([
-          getAbsenMusyrif(undefined, 50),
+          getAbsenMusyrif(undefined, 100),
           getClasses(),
           getHalaqohs(),
           getStudents(),
-          getJournals(100),
-          getAbsenSiswa(undefined, 100)
+          getJournals(3000),
+          getAbsenSiswa(undefined, 1000)
         ]);
 
         setMusyrifAttendances(listAbsMus);
@@ -238,12 +238,12 @@ export default function App() {
       if (targetState === 'musyrif') {
         const mId = targetUserId || currentUser?.id;
         const [listAbsMus, listKls, listHq, listSis, listJrn, listAbsSis] = await Promise.all([
-          getAbsenMusyrif(mId, 30),
+          getAbsenMusyrif(mId, 100),
           getClasses(),
           getHalaqohs(),
           getStudents(),
-          getJournals(100),
-          getAbsenSiswa(mId, 50)
+          getJournals(3000),
+          getAbsenSiswa(undefined, 1000)
         ]);
 
         setMusyrifAttendances(listAbsMus);

@@ -657,7 +657,7 @@ export function formatJournalFromDb(j: any): CatatanHarian {
 }
 
 // CATATAN HARIAN / JOURNALS
-export async function getJournals(limitNum = 200): Promise<CatatanHarian[]> {
+export async function getJournals(limitNum = 3000): Promise<CatatanHarian[]> {
   if (isSupabaseConfigured()) {
     try {
       const { data, error } = await supabase
