@@ -28,23 +28,60 @@ let memoryHalaqohs: Halaqoh[] = [
   { id: 'hq-3', nama: 'Halaqoh At-Tin', musyrifId: '', musyrifNama: 'Belum Ditentukan' }
 ];
 
-let memoryMusyrifs: Musyrif[] = [
-  { id: 'usr-1', nim: '202601001', nama: 'Ahmad Muzakki, S.Pd.', username: 'ahmad', password: 'password123', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
-  { id: 'usr-2', nim: '202601002', nama: 'Umar Al-Faruq', username: 'umar', password: 'password123', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' }
-];
-
-let memoryStudents: Siswa[] = [
-  { id: 'sis-1', noInduk: '1001', nama: 'Abdurrahman Wahid', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
-  { id: 'sis-2', noInduk: '1002', nama: 'Aisyah Humaira', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
-  { id: 'sis-3', noInduk: '1003', nama: 'Muhammad Bilal', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi' },
-  { id: 'sis-4', noInduk: '1004', nama: 'Fathimah Az-Zahra', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' },
-  { id: 'sis-5', noInduk: '1005', nama: 'Yusuf Al-Banjari', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' },
-  { id: 'sis-6', noInduk: '1006', nama: 'Khadijah Al-Kubra', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-3', halaqohNama: 'Halaqoh At-Tin' }
-];
-
 const JOURNALS_KEY = 'mmq_journals_v3';
 const ABSEN_SISWA_KEY = 'mmq_absen_siswa_v2';
 const ABSEN_MUSYRIF_KEY = 'mmq_absen_musyrif_v2';
+const MUSYRIFS_KEY = 'mmq_musyrifs_v3';
+const STUDENTS_KEY = 'mmq_students_v3';
+
+function loadStoredMusyrifs(): Musyrif[] {
+  try {
+    const raw = localStorage.getItem(MUSYRIFS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed loading stored musyrifs:", e);
+  }
+  return [
+    { id: 'usr-1', nim: '202601001', nama: 'Ahmad Muzakki, S.Pd.', username: 'ahmad', password: 'password123', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isMengajarLomba: true },
+    { id: 'usr-2', nim: '202601002', nama: 'Umar Al-Faruq', username: 'umar', password: 'password123', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' }
+  ];
+}
+
+function saveStoredMusyrifs(data: Musyrif[]) {
+  try {
+    localStorage.setItem(MUSYRIFS_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed saving stored musyrifs:", e);
+  }
+}
+
+function loadStoredStudents(): Siswa[] {
+  try {
+    const raw = localStorage.getItem(STUDENTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed loading stored students:", e);
+  }
+  return [
+    { id: 'sis-1', noInduk: '1001', nama: 'Abdurrahman Wahid', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isKelasDasar: true, isKelasTahfidz: true },
+    { id: 'sis-2', noInduk: '1002', nama: 'Aisyah Humaira', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isKelasDasar: true },
+    { id: 'sis-3', noInduk: '1003', nama: 'Muhammad Bilal', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isKelasLomba: true },
+    { id: 'sis-4', noInduk: '1004', nama: 'Fathimah Az-Zahra', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur', isKelasTahfidz: true },
+    { id: 'sis-5', noInduk: '1005', nama: 'Yusuf Al-Banjari', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur', isKelasLomba: true },
+    { id: 'sis-6', noInduk: '1006', nama: 'Khadijah Al-Kubra', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-3', halaqohNama: 'Halaqoh At-Tin' }
+  ];
+}
+
+function saveStoredStudents(data: Siswa[]) {
+  try {
+    localStorage.setItem(STUDENTS_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed saving stored students:", e);
+  }
+}
+
+let memoryMusyrifs: Musyrif[] = loadStoredMusyrifs();
+let memoryStudents: Siswa[] = loadStoredStudents();
 
 function loadStoredJournals(): CatatanHarian[] {
   try {
@@ -369,13 +406,23 @@ export async function getMusyrifs(): Promise<Musyrif[]> {
     try {
       const { data, error } = await supabase.from('musyrif').select('*').order('nama', { ascending: true });
       if (!error && Array.isArray(data)) {
-        memoryMusyrifs = data as Musyrif[];
-        return memoryMusyrifs.map(m => ({
-          ...m,
-          id: String(m.id || ''),
-          nama: safeString(m.nama),
-          username: safeString(m.username)
-        }));
+        const stored = loadStoredMusyrifs();
+        const storedMap = new Map(stored.map(m => [m.id, m]));
+
+        memoryMusyrifs = data.map(dbM => {
+          const localM = storedMap.get(dbM.id);
+          return {
+            ...dbM,
+            id: String(dbM.id || ''),
+            nama: safeString(dbM.nama),
+            username: safeString(dbM.username),
+            isMengajarLomba: (dbM.isMengajarLomba !== undefined && dbM.isMengajarLomba !== null)
+              ? Boolean(dbM.isMengajarLomba)
+              : Boolean(localM?.isMengajarLomba)
+          };
+        });
+        saveStoredMusyrifs(memoryMusyrifs);
+        return memoryMusyrifs;
       } else if (error) {
         console.warn("Supabase getMusyrifs error:", error.message || error);
       }
@@ -394,13 +441,15 @@ export async function getMusyrifs(): Promise<Musyrif[]> {
 
 export async function addMusyrif(item: Omit<Musyrif, 'id'>): Promise<Musyrif> {
   const newItem: Musyrif = { id: generateId('usr'), ...item };
+  memoryMusyrifs.push(newItem);
+  saveStoredMusyrifs(memoryMusyrifs);
 
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('musyrif').insert(newItem);
-      if (error && (error.message?.includes('isMengajar') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
-        console.warn("Supabase musyrif table missing optional boolean columns, retrying insert without optional flags...");
-        const { isMengajarLomba, isMengajarTahfidz, isMengajarDasar, ...cleanItem } = newItem as any;
+      if (error && (error.message?.includes('isMengajarLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase musyrif table missing optional columns, retrying insert without optional boolean flags...");
+        const { isMengajarLomba, ...cleanItem } = newItem as any;
         const retryResult = await supabase.from('musyrif').insert(cleanItem);
         error = retryResult.error;
       }
@@ -411,19 +460,19 @@ export async function addMusyrif(item: Omit<Musyrif, 'id'>): Promise<Musyrif> {
       console.warn("Failed adding musyrif to Supabase:", e);
     }
   }
-  memoryMusyrifs.push(newItem);
   return newItem;
 }
 
 export async function updateMusyrif(id: string, item: Partial<Musyrif>): Promise<void> {
   memoryMusyrifs = memoryMusyrifs.map(m => m.id === id ? { ...m, ...item } : m);
+  saveStoredMusyrifs(memoryMusyrifs);
 
   if (isSupabaseConfigured()) {
     try {
       let { error } = await supabase.from('musyrif').update(item).eq('id', id);
-      if (error && (error.message?.includes('isMengajar') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
-        console.warn("Supabase musyrif table missing optional boolean columns, retrying update without optional flags...");
-        const { isMengajarLomba, isMengajarTahfidz, isMengajarDasar, ...cleanItem } = item as any;
+      if (error && (error.message?.includes('isMengajarLomba') || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase musyrif table missing optional columns, retrying update without optional boolean flags...");
+        const { isMengajarLomba, ...cleanItem } = item as any;
         const retryResult = await supabase.from('musyrif').update(cleanItem).eq('id', id);
         error = retryResult.error;
       }
@@ -438,6 +487,7 @@ export async function updateMusyrif(id: string, item: Partial<Musyrif>): Promise
 
 export async function deleteMusyrif(id: string): Promise<void> {
   memoryMusyrifs = memoryMusyrifs.filter(m => m.id !== id);
+  saveStoredMusyrifs(memoryMusyrifs);
 
   if (isSupabaseConfigured()) {
     try {
@@ -457,7 +507,22 @@ export async function getStudents(): Promise<Siswa[]> {
     try {
       const { data, error } = await supabase.from('students').select('*').order('nama', { ascending: true });
       if (!error && Array.isArray(data)) {
-        memoryStudents = data as Siswa[];
+        const stored = loadStoredStudents();
+        const storedMap = new Map(stored.map(s => [s.id, s]));
+
+        memoryStudents = data.map(dbS => {
+          const localS = storedMap.get(dbS.id);
+          return {
+            ...dbS,
+            id: String(dbS.id || ''),
+            nama: safeString(dbS.nama),
+            noInduk: safeString(dbS.noInduk),
+            isKelasDasar: (dbS.isKelasDasar !== undefined && dbS.isKelasDasar !== null) ? Boolean(dbS.isKelasDasar) : Boolean(localS?.isKelasDasar),
+            isKelasTahfidz: (dbS.isKelasTahfidz !== undefined && dbS.isKelasTahfidz !== null) ? Boolean(dbS.isKelasTahfidz) : Boolean(localS?.isKelasTahfidz),
+            isKelasLomba: (dbS.isKelasLomba !== undefined && dbS.isKelasLomba !== null) ? Boolean(dbS.isKelasLomba) : Boolean(localS?.isKelasLomba),
+          };
+        });
+        saveStoredStudents(memoryStudents);
         return memoryStudents.map(s => ({
           ...s,
           id: String(s.id || ''),
@@ -482,6 +547,8 @@ export async function getStudents(): Promise<Siswa[]> {
 
 export async function addStudent(item: Omit<Siswa, 'id'>): Promise<Siswa> {
   const newItem: Siswa = { id: generateId('sis'), ...item };
+  memoryStudents.push(newItem);
+  saveStoredStudents(memoryStudents);
 
   if (isSupabaseConfigured()) {
     try {
@@ -499,12 +566,12 @@ export async function addStudent(item: Omit<Siswa, 'id'>): Promise<Siswa> {
       console.warn("Failed adding student to Supabase:", e);
     }
   }
-  memoryStudents.push(newItem);
   return newItem;
 }
 
 export async function updateStudent(id: string, item: Partial<Siswa>): Promise<void> {
   memoryStudents = memoryStudents.map(s => s.id === id ? { ...s, ...item } : s);
+  saveStoredStudents(memoryStudents);
 
   if (isSupabaseConfigured()) {
     try {
@@ -526,6 +593,7 @@ export async function updateStudent(id: string, item: Partial<Siswa>): Promise<v
 
 export async function deleteStudent(id: string): Promise<void> {
   memoryStudents = memoryStudents.filter(s => s.id !== id);
+  saveStoredStudents(memoryStudents);
 
   if (isSupabaseConfigured()) {
     try {

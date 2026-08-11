@@ -34,8 +34,6 @@ export interface Musyrif {
   halaqohNama: string;
   statusAkses?: 'aktif' | 'nonaktif';
   isMengajarLomba?: boolean;
-  isMengajarTahfidz?: boolean;
-  isMengajarDasar?: boolean;
 }
 
 export type NilaiEvaluasi = 'A' | 'B' | 'C' | 'D' | 'E'; // Mumtaz (A), Jayyid Jidid (B), Jayyid (C), Maqbul (D), Rosib (E)

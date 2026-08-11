@@ -16,6 +16,7 @@ import {
   updateJournal, 
   deleteJournal, 
   getAbsenSiswa,
+  updateMusyrif,
   subscribeToTable 
 } from '../lib/supabaseService';
 import { Kelas, Siswa, Halaqoh, Musyrif, CatatanHarian, NilaiEvaluasi, AbsenSiswa, AbsenMusyrif } from '../types';
@@ -1692,6 +1693,35 @@ export default function MusyrifDashboard({
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (currentMusyrif) {
+                    const nextVal = !isMengajarLomba;
+                    await updateMusyrif(currentMusyrif.id, { isMengajarLomba: nextVal });
+                    setFeedback({
+                      text: nextVal ? 'Status Pengajar Kelas Lomba diaktifkan.' : 'Status Pengajar Kelas Lomba dinonaktifkan.',
+                      type: 'success'
+                    });
+                    await refreshData();
+                  } else {
+                    setFeedback({
+                      text: 'Data profil musyrif sedang dimuat, silakan coba beberapa saat lagi.',
+                      type: 'danger'
+                    });
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 font-extrabold rounded-xl text-xs transition cursor-pointer border ${
+                  isMengajarLomba
+                    ? 'bg-amber-400 hover:bg-amber-500 text-amber-950 border-amber-300 shadow-xs'
+                    : 'bg-emerald-700/80 hover:bg-emerald-700 text-emerald-100 border-emerald-600'
+                }`}
+                title="Klik untuk mengaktifkan/menonaktifkan status Pengajar Kelas Lomba"
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>{isMengajarLomba ? '✓ Mengajar Lomba' : '+ Pengajar Lomba'}</span>
+              </button>
+
               <button
                 id="musyrif-logout-btn"
                 onClick={onLogout}
