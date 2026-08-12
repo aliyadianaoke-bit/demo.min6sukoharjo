@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
    Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
    ChevronRight, ChevronLeft, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
