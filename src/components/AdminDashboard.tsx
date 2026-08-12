@@ -2366,53 +2366,6 @@ export default function AdminDashboard({
                 </button>
               </div>
 
-              {/* Status Access Control Card for Massal Musyrif Login */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                    musyrifLoginEnabled ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-rose-100 text-rose-700 border border-rose-200'
-                  }`}>
-                    {musyrifLoginEnabled ? <UserCheck className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Akses Login Massal Musyrif</h4>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase ${
-                        musyrifLoginEnabled ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-                      }`}>
-                        {musyrifLoginEnabled ? 'AKTIF (ON)' : 'NONAKTIF (OFF)'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">
-                      {musyrifLoginEnabled
-                        ? 'Master Switch Global: Login dibuka. Status individual per Musyrif pada tabel di bawah tetap berlaku.'
-                        : 'Master Switch Global: Seluruh login Musyrif ditutup massal oleh Admin.'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* ON / OFF Toggle Switch */}
-                <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
-                  <span className="text-xs font-bold text-slate-600">Master Switch:</span>
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={() => handleToggleMusyrifLogin(!musyrifLoginEnabled)}
-                    className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      musyrifLoginEnabled ? 'bg-emerald-600' : 'bg-slate-300'
-                    }`}
-                    title="Klik untuk mengubah saklar master login Musyrif (ON/OFF)"
-                  >
-                    <span
-                      className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-md transition-transform flex items-center justify-center font-black text-[9px] ${
-                        musyrifLoginEnabled ? 'translate-x-9 text-emerald-700' : 'translate-x-1 text-slate-500'
-                      }`}
-                    >
-                      {musyrifLoginEnabled ? 'ON' : 'OFF'}
-                    </span>
-                  </button>
-                </div>
-              </div>
 
               {/* Ketentuan Otomatis Absensi 14.00 WIB Banner */}
               <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-2xl flex items-start gap-3 shadow-2xs">
