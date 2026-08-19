@@ -72,8 +72,6 @@ export default function MusyrifDashboard({
     );
   }, [musyrifs, userId, userNama]);
 
-  const isMengajarLomba = currentMusyrif?.isMengajarLomba === true;
-
   // Filter halaqohs to only those managed by the current Musyrif (robust multi-field fallback)
   const myHalaqohs = useMemo(() => {
     return halaqohs.filter(h => {
@@ -94,6 +92,22 @@ export default function MusyrifDashboard({
       return false;
     });
   }, [halaqohs, userId, userNama, currentMusyrif]);
+
+  const isMengajarLomba = useMemo(() => {
+    if (currentMusyrif?.isMengajarLomba === true) return true;
+    if (myHalaqohs.some(h => h.nama && h.nama.toLowerCase().includes('lomba'))) return true;
+    if (halaqohs.some(h => (String(h.musyrifId) === String(userId) || (h.musyrifIds && h.musyrifIds.some(mid => String(mid) === String(userId)))) && h.nama && h.nama.toLowerCase().includes('lomba'))) return true;
+    return false;
+  }, [currentMusyrif, myHalaqohs, halaqohs, userId]);
+
+  // Helper to determine if a student belongs to Halaqoh / Kelas Lomba
+  const isStudentLomba = (s: Siswa) => {
+    if (s.isKelasLomba === true) return true;
+    if (s.halaqohNama && s.halaqohNama.toLowerCase().includes('lomba')) return true;
+    const hq = halaqohs.find(h => String(h.id) === String(s.halaqohId));
+    if (hq && hq.nama && hq.nama.toLowerCase().includes('lomba')) return true;
+    return false;
+  };
 
   // Auto-find Musyrif's assigned halaqoh (if any) as initial value
   const assignedHalaqoh = useMemo(() => {
@@ -120,6 +134,8 @@ export default function MusyrifDashboard({
   const [selectedBulanMonth, setSelectedBulanMonth] = useState('06'); // Default June (2026 as current year)
   const [selectedBulanSiswaId, setSelectedBulanSiswaId] = useState('');
   const [searchSiswa, setSearchSiswa] = useState('');
+  const [lombaKelasFilter, setLombaKelasFilter] = useState('');
+  const [lombaSearchSiswa, setLombaSearchSiswa] = useState('');
 
   // Form input states (for modal dialog input harian)
   const [showInputModal, setShowInputModal] = useState(false);
@@ -1368,6 +1384,26 @@ export default function MusyrifDashboard({
     }, 500);
   };
 
+  // All students belonging to Halaqoh Lomba / Kelas Lomba across all classes
+  const allLombaStudents = useMemo(() => {
+    const seen = new Set<string>();
+    return students
+      .filter(s => {
+        if (!isStudentLomba(s)) return false;
+        const key = String(s.id) || (s.nama ? s.nama.trim().toLowerCase() : '');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => {
+        const classCompare = (a.kelasNama || '').localeCompare(b.kelasNama || '', 'id', { numeric: true, sensitivity: 'base' });
+        if (classCompare !== 0) {
+          return classSortOrder === 'asc' ? classCompare : -classCompare;
+        }
+        return (a.nama || '').localeCompare(b.nama || '', 'id');
+      });
+  }, [students, halaqohs, classSortOrder]);
+
   // All students belonging to this Musyrif's managed halaqohs (filtered to selected halaqoh if active)
   const myStudents = useMemo(() => {
     const seen = new Set<string>();
@@ -1408,17 +1444,20 @@ export default function MusyrifDashboard({
 
   // Filter students based on selected Class and Program
   const inputTabStudents = useMemo(() => {
-    return myStudents.filter(s => {
+    // When Program Kelas Lomba is selected, pull all students in halaqoh lomba directly without halaqoh restriction
+    const baseSource = selectedProgram === 'Kelas Lomba' ? allLombaStudents : myStudents;
+
+    return baseSource.filter(s => {
       // Check program: allow all students unless explicitly marked exclusively false
       if (selectedProgram === 'dasar') {
         if (s.isKelasDasar === false && (s.isKelasTahfidz === true || s.isKelasLomba === true)) return false;
       } else if (selectedProgram === 'tahfidz') {
         if (s.isKelasTahfidz === false && (s.isKelasDasar === true || s.isKelasLomba === true)) return false;
       } else if (selectedProgram === 'Kelas Lomba') {
-        if (s.isKelasLomba === false && (s.isKelasDasar === true || s.isKelasTahfidz === true)) return false;
+        // Already pulled from allLombaStudents
       }
 
-      // Check class filter (only if selected)
+      // Check class filter (only if selected by user)
       if (selectedKelasId) {
         const selClass = classes.find(c => String(c.id) === String(selectedKelasId) || c.nama === selectedKelasId);
         const selClassName = selClass ? selClass.nama : selectedKelasId;
@@ -1440,7 +1479,7 @@ export default function MusyrifDashboard({
 
       return true;
     });
-  }, [myStudents, selectedProgram, selectedKelasId, classes, searchSiswa]);
+  }, [myStudents, allLombaStudents, selectedProgram, selectedKelasId, classes, searchSiswa]);
 
   // Filter journals for "Rekap Harian" based on class, program, and date
   const dailyRecapLogs = useMemo(() => {
@@ -2555,6 +2594,46 @@ export default function MusyrifDashboard({
                                           </div>
                                         );
                                       })()
+                                    ) : selectedProgram === 'Kelas Lomba' ? (
+                                      // Program Kelas Lomba
+                                      logHariIni ? (
+                                        <div className="p-3 bg-white rounded-xl border border-amber-200 text-xs text-amber-950 space-y-1">
+                                          <div className="flex items-center justify-between text-[10px] font-bold text-amber-700 uppercase">
+                                            <span>SUDAH SETORAN LOMBA HARI INI</span>
+                                            <span className="bg-amber-100 text-amber-900 font-extrabold px-1.5 py-0.5 rounded-sm">{logHariIni.nilai}</span>
+                                          </div>
+                                          <p className="line-clamp-1 font-semibold text-slate-800">Materi: {logHariIni.materiSetoran}</p>
+                                          <p className="line-clamp-2 text-slate-500 leading-snug text-[11px] italic">Eval: {logHariIni.evaluasiTahsin || '-'}</p>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          {(() => {
+                                            const lastLombaLog = journals
+                                              .filter(j => String(j.siswaId) === String(siswa.id) && j.program === 'Kelas Lomba')
+                                              .sort((a, b) => b.tanggal.localeCompare(a.tanggal))[0];
+                                            if (lastLombaLog) {
+                                              const parts = lastLombaLog.tanggal.split('-');
+                                              const formattedDate = parts.length === 3 
+                                                ? `${parseInt(parts[2], 10)} ${['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][parseInt(parts[1], 10) - 1]} ${parts[0]}`
+                                                : lastLombaLog.tanggal;
+                                              return (
+                                                <div className="p-3 bg-amber-50/50 border border-amber-200/80 rounded-xl text-xs space-y-1">
+                                                  <div className="flex items-center justify-between text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">
+                                                    <span>Setoran Lomba Terakhir ({formattedDate})</span>
+                                                    <span className="bg-amber-100 text-amber-900 px-1.5 rounded text-[9px] font-black">{lastLombaLog.nilai}</span>
+                                                  </div>
+                                                  <p className="font-bold text-slate-800">Materi: <span className="text-amber-950 font-extrabold">{lastLombaLog.materiSetoran}</span></p>
+                                                  <p className="text-slate-500 leading-relaxed text-[11px] italic">Eval: {lastLombaLog.evaluasiTahsin || '-'}</p>
+                                                </div>
+                                              );
+                                            }
+                                            return null;
+                                          })()}
+                                          <div className="p-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400 italic">
+                                            Belum ada setoran lomba hari ini.
+                                          </div>
+                                        </>
+                                      )
                                     ) : (
                                       // Program Dasar
                                       logHariIni ? (
@@ -2658,6 +2737,53 @@ export default function MusyrifDashboard({
                                           </div>
                                         );
                                       })()
+                                    ) : selectedProgram === 'Kelas Lomba' ? (
+                                      // Program Kelas Lomba
+                                      logHariIni ? (
+                                        <div className="flex gap-2 w-full">
+                                          <button
+                                            onClick={() => {
+                                              setTargetSiswa(siswa);
+                                              setSelectedProgram('Kelas Lomba');
+                                              setSelectedKategori('Setoran');
+                                              setFormTanggal(logHariIni.tanggal);
+                                              setFormMateri(logHariIni.materiSetoran);
+                                              setFormEvaluasi(logHariIni.evaluasiTahsin);
+                                              setFormNilai(logHariIni.nilai);
+                                              setEditingJournalId(logHariIni.id);
+                                              setShowInputModal(true);
+                                            }}
+                                            className="flex-1 py-2 bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100 text-xs font-bold rounded-xl transition cursor-pointer text-center"
+                                          >
+                                            Edit Setoran Lomba
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteLog(logHariIni.id)}
+                                            className="px-3 py-2 bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 text-xs font-bold rounded-xl transition cursor-pointer text-center"
+                                            title="Hapus setoran"
+                                          >
+                                            Hapus
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          onClick={() => {
+                                            setTargetSiswa(siswa);
+                                            setSelectedProgram('Kelas Lomba');
+                                            setSelectedKategori('Setoran');
+                                            setFormTanggal(new Date().toISOString().split('T')[0]);
+                                            setFormMateri('');
+                                            setFormEvaluasi('');
+                                            setFormNilai('A');
+                                            setEditingJournalId(null);
+                                            setShowInputModal(true);
+                                          }}
+                                          className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs hover:shadow-md flex items-center justify-center gap-1.5"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                          <span>Input Setoran Lomba</span>
+                                        </button>
+                                      )
                                     ) : (
                                       // Program Dasar
                                       logHariIni ? (
