@@ -3,7 +3,7 @@ import {
    Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
    ChevronRight, ChevronLeft, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
    Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet, ArrowUpDown,
-   Copy, ExternalLink, Eye, EyeOff, User
+   Copy, ExternalLink, Eye, EyeOff, User, Share2
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { 
@@ -1038,6 +1038,101 @@ export default function AdminDashboard({
       showFeedback('Gagal mengubah status akses Musyrif: ' + err.message, 'danger');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+      }
+    } catch {
+      return false;
+    }
+  };
+
+  const handleShareWAAdmin = async () => {
+    if (!activeHalaqoh) {
+      showFeedback('Silahkan pilih Halaqoh terlebih dahulu.', 'danger');
+      return;
+    }
+
+    const formattedDate = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const programLabel = selectedLaporanKelasTipe === 'semua' ? 'Semua Program' :
+                         selectedLaporanKelasTipe === 'dasar' ? 'Kelas Dasar' :
+                         selectedLaporanKelasTipe === 'tahfidz' ? 'Kelas Tahfidz' : 'Kelas Lomba';
+
+    let text = `*LAPORAN PERKEMBANGAN TAHFIDZ SANTRI*\n`;
+    text += `*Program Mutiara Bangsa*\n\n`;
+    text += `🏛️ *Halaqoh Qur'an*: ${activeHalaqoh.nama}\n`;
+    text += `👤 *Musyrif Pengampu*: ${activeHalaqohMusyrifNames}\n`;
+    text += `📚 *Kategori*: ${programLabel}\n`;
+    text += `📅 *Tanggal Cetak*: ${formattedDate}\n`;
+    text += `👥 *Total Santri*: ${reportStudents.length} Santri\n`;
+    text += `📊 *Total Setoran*: ${reportJournals.length} Setoran\n`;
+    text += `🌟 *Mumtaz (A)*: ${reportJournals.filter(j => j.nilai === 'A').length} Kali\n\n`;
+    text += `===================================\n`;
+    text += `*DETAIL PER SANTRI:*\n\n`;
+
+    if (reportStudents.length === 0) {
+      text += `_Tidak ada santri terdaftar pada filter ini._\n`;
+    } else {
+      reportStudents.forEach((siswa, idx) => {
+        const baseHistory = journals
+          .filter(j => String(j.siswaId) === String(siswa.id) && (j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori)))
+          .sort((a, b) => b.tanggal.localeCompare(a.tanggal));
+
+        text += `*${idx + 1}. ${siswa.nama.toUpperCase()}* (NIS: ${siswa.noInduk || '-'}, Kelas: ${siswa.kelasNama || '-'})\n`;
+        text += `• Total Setoran: *${baseHistory.length} Kali*\n`;
+
+        if (baseHistory.length > 0) {
+          const latest = baseHistory[0];
+          const labelNilai = latest.nilai === 'A' ? 'Mumtaz (A)' : 
+                             latest.nilai === 'B' ? 'Jayyid Jiddan (B)' : 
+                             latest.nilai === 'C' ? 'Jayyid (C)' : 
+                             latest.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+          const katLabel = latest.kategori ? `[${latest.kategori}] ` : '';
+          text += `• Setoran Terakhir: _${latest.tanggal}_ - ${katLabel}*${latest.materiSetoran}* (Nilai: *${labelNilai}*)\n`;
+        } else {
+          text += `• _Belum ada riwayat setoran._\n`;
+        }
+        text += `\n`;
+      });
+    }
+
+    text += `===================================\n`;
+    text += `_Mencetak Generasi Qur'ani yang Berakhlaqul Karimah_`;
+
+    await copyToClipboard(text);
+
+    const encodedText = encodeURIComponent(text);
+    if (encodedText.length < 1800) {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodedText}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Berhasil! Laporan halaqoh dikirim ke WA (dan tersalin di clipboard).`);
+    } else {
+      const introText = `*LAPORAN PERKEMBANGAN TAHFIDZ SANTRI*\n🏛️ *Halaqoh*: ${activeHalaqoh.nama}\n👤 *Musyrif*: ${activeHalaqohMusyrifNames}\n👥 *Total*: ${reportStudents.length} Santri (${reportJournals.length} Setoran)\n\n*(Teks rekap lengkap seluruh santri telah disalin ke Clipboard! Silakan langsung Tempel / Paste di WA)*\n\n`;
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(introText)}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Teks laporan halaqoh telah disalin ke Clipboard! Tinggal PASTE (Tempel) di WhatsApp.`, 'success');
     }
   };
 
@@ -2686,13 +2781,23 @@ export default function AdminDashboard({
                 </div>
 
                 {selectedLaporanHalaqohId && (
-                  <button
-                    onClick={handleCetakPDF}
-                    className="w-full md:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-sm hover:shadow shrink-0 self-stretch md:self-auto"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Cetak PDF</span>
-                  </button>
+                  <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0 self-stretch md:self-auto">
+                    <button
+                      onClick={handleShareWAAdmin}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-sm hover:shadow"
+                      title="Kirim Rekap Laporan Halaqoh ke WhatsApp"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Kirim ke WA</span>
+                    </button>
+                    <button
+                      onClick={handleCetakPDF}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-sm hover:shadow"
+                    >
+                      <Printer className="w-4 h-4" />
+                      <span>Cetak PDF</span>
+                    </button>
+                  </div>
                 )}
               </div>
 

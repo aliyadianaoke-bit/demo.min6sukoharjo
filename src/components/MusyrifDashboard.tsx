@@ -611,7 +611,7 @@ export default function MusyrifDashboard({
     text += `===================================\n\n`;
 
     if (sortedStudents.length === 0) {
-      text += `_Tidak ada santri di kelas ini._\n`;
+      text += `_Tidak ada santri pada filter ini._\n`;
     } else {
       sortedStudents.forEach((siswa, idx) => {
         const studentLogs = dailyRecapLogs.filter(j => 
@@ -676,6 +676,297 @@ export default function MusyrifDashboard({
       const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(introText)}`;
       window.open(waUrl, '_blank');
       showFeedback(`Teks rekap 1 kelas (${sortedStudents.length} santri) telah disalin ke Clipboard! Tinggal PASTE (Tempel) di WhatsApp.`, 'success');
+    }
+  };
+
+  const handleShareWASingleStudent = async (siswa: Siswa) => {
+    const studentLogs = dailyRecapLogs.filter(j => 
+      String(j.siswaId) === String(siswa.id) ||
+      (j.siswaNama && siswa.nama && j.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase()) ||
+      (j.noInduk && siswa.noInduk && j.noInduk.trim() === siswa.noInduk.trim())
+    );
+    const activeKelasObj = classes.find(c => String(c.id) === String(siswa.kelasId) || c.nama === siswa.kelasNama);
+    const kelasNama = siswa.kelasNama || activeKelasObj?.nama || 'Kelas';
+    const programLabel = selectedProgram === 'dasar' ? 'Program Dasar' : selectedProgram === 'tahfidz' ? 'Tahfidz Qur\'an' : 'Kelas Lomba';
+    const formattedDate = new Date(rekapHariTanggal).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const categoryOrderMap: Record<string, number> = {
+      'Murojaah': 1,
+      'Ziyadah': 2,
+      'Setoran': 3,
+      'Tugas Tilawah': 4
+    };
+
+    let text = `*LAPORAN PERKEMBANGAN SANTRI*\n`;
+    text += `*Program Mutiara Bangsa*\n\n`;
+    text += `👤 *Nama Santri*: *${siswa.nama.toUpperCase()}*\n`;
+    text += `🆔 *No. Induk*: ${siswa.noInduk || '-'}\n`;
+    text += `🏫 *Kelas*: ${kelasNama}\n`;
+    text += `📚 *Program*: ${programLabel}\n`;
+    text += `👤 *Musyrif/ah*: ${userNama}\n`;
+    text += `📅 *Tanggal*: ${formattedDate}\n\n`;
+    text += `-----------------------------------\n`;
+    text += `*CATATAN SETORAN HARIAN:*\n`;
+
+    if (studentLogs.length > 0) {
+      const sortedLogs = [...studentLogs].sort((a, b) => {
+        const orderA = a.kategori ? (categoryOrderMap[a.kategori] || 99) : 99;
+        const orderB = b.kategori ? (categoryOrderMap[b.kategori] || 99) : 99;
+        return orderA - orderB;
+      });
+
+      sortedLogs.forEach(log => {
+        const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
+                           log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
+                           log.nilai === 'C' ? 'Jayyid (C)' : 
+                           log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+        const katLabel = log.kategori ? `[${log.kategori}] ` : '';
+        text += `\n• *${katLabel}${log.materiSetoran}*\n`;
+        text += `  Nilai: *${labelNilai}*\n`;
+        if (log.evaluasiTahsin && log.evaluasiTahsin.trim()) {
+          text += `  Evaluasi: _${log.evaluasiTahsin}_\n`;
+        }
+      });
+    } else {
+      const att = localStudentAttendances.find(a => 
+        (String(a.siswaId) === String(siswa.id) || (a.siswaNama && siswa.nama && a.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase())) && 
+        a.tanggal === rekapHariTanggal
+      );
+      const attStatus = att ? att.status : 'Belum Absen';
+      const displayStatus = attStatus === 'Hadir' ? 'Hadir (Belum Setoran)' : attStatus;
+      text += `\n• *Status Kehadiran*: _${displayStatus}_\n`;
+    }
+
+    text += `\n-----------------------------------\n`;
+    text += `_Mencetak Generasi Qur'ani yang Berakhlaqul Karimah_`;
+
+    await copyToClipboard(text);
+    const encoded = encodeURIComponent(text);
+    window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
+    showFeedback(`Laporan harian santri ${siswa.nama} siap dikirim ke WA!`);
+  };
+
+  const handleShareWABulananKelas = async () => {
+    if (classMonthlyRecap.length === 0) {
+      showFeedback('Tidak ada data santri pada rekap bulanan kelas ini.', 'danger');
+      return;
+    }
+    const selectedClass = classes.find(c => String(c.id) === String(selectedKelasId));
+    const kelasNamaStr = selectedClass ? selectedClass.nama : (selectedKelasId || 'Semua Kelas');
+    const programNamaStr = selectedProgram === 'tahfidz' ? 'Tahfidz Qur\'an' : selectedProgram === 'Kelas Lomba' ? 'Kelas Lomba' : 'Program Dasar';
+    const monthNames: Record<string, string> = {
+      '01': 'Januari', '02': 'Februari', '03': 'Maret', '04': 'April',
+      '05': 'Mei', '06': 'Juni', '07': 'Juli', '08': 'Agustus',
+      '09': 'September', '10': 'Oktober', '11': 'November', '12': 'Desember'
+    };
+    const bulanName = monthNames[selectedBulanMonth] || selectedBulanMonth;
+    const totalStudents = classMonthlyRecap.length;
+    const totalSetoranKelas = classMonthlyRecap.reduce((acc, curr) => acc + curr.totalSetoran, 0);
+    const santriAktifCount = classMonthlyRecap.filter(c => c.totalSetoran > 0).length;
+
+    let text = `*REKAPAN BULANAN KELAS ${kelasNamaStr.toUpperCase()}*\n`;
+    text += `*Program Mutiara Bangsa*\n\n`;
+    text += `🏫 *Kelas*: ${kelasNamaStr}\n`;
+    text += `📚 *Program*: ${programNamaStr}\n`;
+    text += `👤 *Musyrif/ah*: ${userNama}\n`;
+    text += `📅 *Periode*: ${bulanName} 2026\n`;
+    text += `👥 *Total Santri*: ${totalStudents} Santri\n`;
+    text += `📊 *Total Setoran*: ${totalSetoranKelas} Kali Setoran\n`;
+    text += `📈 *Santri Aktif*: ${santriAktifCount} dari ${totalStudents} Santri\n\n`;
+    text += `===================================\n`;
+    text += `*RINGKASAN PER SANTRI:*\n\n`;
+
+    classMonthlyRecap.forEach((item, idx) => {
+      const awalStr = item.setoranAwal 
+        ? `${item.setoranAwal.tanggal.split('-').reverse().slice(0, 2).join('/')} (${item.setoranAwal.kategori ? `[${item.setoranAwal.kategori}] ` : ''}${item.setoranAwal.materiSetoran})` 
+        : '-';
+      const akhirStr = item.setoranAkhir 
+        ? `${item.setoranAkhir.tanggal.split('-').reverse().slice(0, 2).join('/')} (${item.setoranAkhir.kategori ? `[${item.setoranAkhir.kategori}] ` : ''}${item.setoranAkhir.materiSetoran})` 
+        : '-';
+
+      text += `*${idx + 1}. ${item.siswa.nama.toUpperCase()}* (${item.siswa.noInduk || '-'})\n`;
+      text += `• Total Setoran: *${item.totalSetoran} Kali*\n`;
+      text += `• Setoran Awal: _${awalStr}_\n`;
+      text += `• Setoran Akhir: _${akhirStr}_\n\n`;
+    });
+
+    text += `===================================\n`;
+    text += `_Mencetak Generasi Qur'ani yang Berakhlaqul Karimah_`;
+
+    await copyToClipboard(text);
+
+    const encodedText = encodeURIComponent(text);
+    if (encodedText.length < 1800) {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodedText}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Berhasil! Rekap bulanan kelas dikirim ke WA (dan tersalin di clipboard).`);
+    } else {
+      const introText = `*REKAPAN BULANAN KELAS ${kelasNamaStr.toUpperCase()} (${programNamaStr.toUpperCase()})*\n📅 *Periode*: ${bulanName} 2026\n📊 *Total*: ${totalSetoranKelas} Setoran (${santriAktifCount}/${totalStudents} Santri)\n\n*(Teks rekap bulanan 1 kelas lengkap telah disalin ke Clipboard! Silakan langsung Tempel / Paste di WA)*\n\n`;
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(introText)}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Teks rekap bulanan 1 kelas telah disalin ke Clipboard! Tinggal PASTE (Tempel) di WhatsApp.`, 'success');
+    }
+  };
+
+  const handleShareWABulananSantri = async () => {
+    const selectedSiswa = selectBulanStudents.find(s => String(s.id) === String(selectedBulanSiswaId));
+    if (!selectedSiswa) {
+      showFeedback('Pilih santri terlebih dahulu.', 'danger');
+      return;
+    }
+
+    const monthNames: Record<string, string> = {
+      '01': 'Januari', '02': 'Februari', '03': 'Maret', '04': 'April',
+      '05': 'Mei', '06': 'Juni', '07': 'Juli', '08': 'Agustus',
+      '09': 'September', '10': 'Oktober', '11': 'November', '12': 'Desember'
+    };
+    const bulanName = monthNames[selectedBulanMonth] || selectedBulanMonth;
+    const programNamaStr = selectedProgram === 'tahfidz' ? 'Tahfidz Qur\'an' : selectedProgram === 'Kelas Lomba' ? 'Kelas Lomba' : 'Program Dasar';
+    const totalA = studentMonthlyLogs.filter(j => j.nilai === 'A').length;
+    const totalB = studentMonthlyLogs.filter(j => j.nilai === 'B').length;
+    const totalC = studentMonthlyLogs.filter(j => j.nilai === 'C').length;
+    const totalD = studentMonthlyLogs.filter(j => j.nilai === 'D').length;
+    const totalE = studentMonthlyLogs.filter(j => j.nilai === 'E').length;
+
+    let text = `*LAPORAN REKAP BULANAN SANTRI*\n`;
+    text += `*Program Mutiara Bangsa*\n\n`;
+    text += `👤 *Nama Santri*: *${selectedSiswa.nama.toUpperCase()}*\n`;
+    text += `🆔 *No. Induk*: ${selectedSiswa.noInduk || '-'}\n`;
+    text += `🏫 *Kelas*: ${selectedSiswa.kelasNama || 'Kelas'}\n`;
+    text += `📚 *Program*: ${programNamaStr}\n`;
+    text += `👤 *Musyrif/ah*: ${userNama}\n`;
+    text += `📅 *Bulan*: ${bulanName} 2026\n`;
+    text += `📊 *Total Setoran*: ${studentMonthlyLogs.length} Kali Setoran\n\n`;
+    text += `📈 *Statistik Perolehan Nilai:*\n`;
+    text += `• Mumtaz (A): *${totalA} Kali*\n`;
+    text += `• Jayyid Jiddan (B): *${totalB} Kali*\n`;
+    text += `• Jayyid (C): *${totalC} Kali*\n`;
+    text += `• Maqbul (D): *${totalD} Kali*\n`;
+    text += `• Rosib (E): *${totalE} Kali*\n\n`;
+    text += `===================================\n`;
+    text += `*DETAIL RIWAYAT SETORAN:*\n\n`;
+
+    if (studentMonthlyLogs.length === 0) {
+      text += `_Belum ada catatan setoran pada bulan ini._\n`;
+    } else {
+      studentMonthlyLogs.forEach((log, idx) => {
+        const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
+                           log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
+                           log.nilai === 'C' ? 'Jayyid (C)' : 
+                           log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+        const formattedTgl = log.tanggal.split('-').reverse().join('/');
+        const katLabel = log.kategori ? `[${log.kategori}] ` : '';
+
+        text += `${idx + 1}. *${formattedTgl}* - ${katLabel}*${log.materiSetoran}*\n`;
+        text += `   Nilai: *${labelNilai}*\n`;
+        if (log.evaluasiTahsin && log.evaluasiTahsin.trim()) {
+          text += `   Evaluasi: _${log.evaluasiTahsin}_\n`;
+        }
+        text += `\n`;
+      });
+    }
+
+    text += `===================================\n`;
+    text += `_Mencetak Generasi Qur'ani yang Berakhlaqul Karimah_`;
+
+    await copyToClipboard(text);
+
+    const encodedText = encodeURIComponent(text);
+    if (encodedText.length < 1800) {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodedText}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Berhasil! Rekap bulanan santri ${selectedSiswa.nama} dikirim ke WA.`);
+    } else {
+      const introText = `*LAPORAN REKAP BULANAN SANTRI*\n👤 *Nama*: *${selectedSiswa.nama.toUpperCase()}*\n📅 *Bulan*: ${bulanName} 2026\n📊 *Total*: ${studentMonthlyLogs.length} Setoran\n\n*(Teks detail riwayat bulanan telah disalin ke Clipboard! Silakan langsung Tempel / Paste di WA)*\n\n`;
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(introText)}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Teks riwayat bulanan santri telah disalin ke Clipboard! Tinggal PASTE (Tempel) di WhatsApp.`, 'success');
+    }
+  };
+
+  const handleShareWALomba = async () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const lombaLogsToday = journals.filter(j => 
+      j.tanggal === todayStr && 
+      j.program === 'Kelas Lomba'
+    );
+
+    const lombaStudentsList = students.filter(s => {
+      if (!isStudentLomba(s)) return false;
+      if (selectedKelasId && String(s.kelasId) !== String(selectedKelasId) && s.kelasNama !== selectedKelasId) return false;
+      if (searchSiswa.trim()) {
+        const term = searchSiswa.toLowerCase();
+        if (!(s.nama.toLowerCase().includes(term) || (s.noInduk && s.noInduk.toLowerCase().includes(term)) || (s.kelasNama && s.kelasNama.toLowerCase().includes(term)))) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const formattedDate = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    let text = `*REKAP SETORAN HARIAN KELAS LOMBA*\n`;
+    text += `*Program Mutiara Bangsa*\n\n`;
+    text += `🏆 *Kategori*: Kelas Lomba Tahfidz\n`;
+    text += `👤 *Musyrif/ah*: ${userNama}\n`;
+    text += `📅 *Tanggal*: ${formattedDate}\n`;
+    text += `👥 *Total Santri Lomba*: ${lombaStudentsList.length} Santri\n`;
+    text += `📊 *Total Setoran Masuk*: ${lombaLogsToday.length} Setoran\n\n`;
+    text += `===================================\n`;
+    text += `*CATATAN SETORAN LOMBA HARI INI:*\n\n`;
+
+    if (lombaStudentsList.length === 0) {
+      text += `_Tidak ada santri kelas lomba pada filter ini._\n`;
+    } else {
+      lombaStudentsList.forEach((siswa, idx) => {
+        const sLogs = lombaLogsToday.filter(j => 
+          String(j.siswaId) === String(siswa.id) ||
+          (j.siswaNama && siswa.nama && j.siswaNama.trim().toLowerCase() === siswa.nama.trim().toLowerCase())
+        );
+
+        text += `*${idx + 1}. ${siswa.nama.toUpperCase()}* (${siswa.kelasNama || '-'})\n`;
+        if (sLogs.length > 0) {
+          sLogs.forEach(log => {
+            const labelNilai = log.nilai === 'A' ? 'Mumtaz (A)' : 
+                               log.nilai === 'B' ? 'Jayyid Jidid (B)' : 
+                               log.nilai === 'C' ? 'Jayyid (C)' : 
+                               log.nilai === 'D' ? 'Maqbul (D)' : 'Rosib (E)';
+            text += `• *Materi*: _${log.materiSetoran}_\n`;
+            text += `• *Nilai*: *${labelNilai}*\n`;
+            if (log.evaluasiTahsin && log.evaluasiTahsin.trim()) {
+              text += `• *Evaluasi*: _${log.evaluasiTahsin}_\n`;
+            }
+          });
+        } else {
+          text += `• _Belum setor lomba hari ini._\n`;
+        }
+        text += `\n`;
+      });
+    }
+
+    text += `===================================\n`;
+    text += `_Mencetak Generasi Qur'ani yang Berakhlaqul Karimah_`;
+
+    await copyToClipboard(text);
+
+    const encodedText = encodeURIComponent(text);
+    if (encodedText.length < 1800) {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodedText}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Berhasil! Rekap kelas lomba dikirim ke WA.`);
+    } else {
+      const introText = `*REKAP SETORAN HARIAN KELAS LOMBA*\n📅 *Tanggal*: ${formattedDate}\n📊 *Total*: ${lombaLogsToday.length} Setoran (${lombaStudentsList.length} Santri)\n\n*(Teks rekap lengkap telah disalin ke Clipboard! Silakan langsung Tempel / Paste di WA)*\n\n`;
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(introText)}`;
+      window.open(waUrl, '_blank');
+      showFeedback(`Teks rekap kelas lomba telah disalin ke Clipboard! Tinggal PASTE (Tempel) di WhatsApp.`, 'success');
     }
   };
 
@@ -1560,8 +1851,12 @@ export default function MusyrifDashboard({
       baseList.push(s);
     };
 
-    // 1. Base list from students array matching class and program
-    students.forEach(s => {
+    // 1. Determine student source pool
+    const sourceStudents = selectedProgram === 'Kelas Lomba'
+      ? (allLombaStudents.length > 0 ? allLombaStudents : students.filter(isStudentLomba))
+      : (selectedKelasId ? students : (myStudents.length > 0 ? myStudents : students));
+
+    sourceStudents.forEach(s => {
       // Filter by selected Class (if specified)
       if (selectedKelasId) {
         const selClass = classes.find(c => String(c.id) === String(selectedKelasId) || c.nama === selectedKelasId);
@@ -1572,9 +1867,6 @@ export default function MusyrifDashboard({
           (selClassName && s.kelasNama === selClassName);
 
         if (!matchesClass) return;
-      } else {
-        // If no class selected, filter by myStudents if present
-        if (myStudents.length > 0 && !myStudents.some(ms => String(ms.id) === String(s.id))) return;
       }
 
       // Filter by program
@@ -1585,7 +1877,7 @@ export default function MusyrifDashboard({
         const isMatch = s.isKelasTahfidz === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
         if (!isMatch) return;
       } else if (selectedProgram === 'Kelas Lomba') {
-        const isMatch = s.isKelasLomba === true || (!s.isKelasDasar && !s.isKelasTahfidz && !s.isKelasLomba);
+        const isMatch = isStudentLomba(s);
         if (!isMatch) return;
       }
 
@@ -1617,7 +1909,7 @@ export default function MusyrifDashboard({
     });
 
     return baseList.sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id'));
-  }, [students, selectedKelasId, classes, myStudents, selectedProgram, dailyRecapLogs]);
+  }, [students, selectedKelasId, classes, myStudents, allLombaStudents, selectedProgram, dailyRecapLogs]);
 
   // Students available for selection in "Rekap Bulanan" & "Rekap Harian"
   const selectBulanStudents = rekapKelasStudents;
@@ -1652,9 +1944,11 @@ export default function MusyrifDashboard({
 
         if (!matchesSiswa || !j.tanggal.startsWith(prefix)) return false;
         if (selectedProgram === 'tahfidz') {
-          return j.program === 'tahfidz' || (j.program !== 'dasar' && !!j.kategori);
+          return j.program === 'tahfidz' || (j.program !== 'dasar' && j.program !== 'Kelas Lomba' && !!j.kategori);
         } else if (selectedProgram === 'dasar') {
-          return j.program === 'dasar' || (j.program !== 'tahfidz' && !j.kategori);
+          return j.program === 'dasar' || (j.program !== 'tahfidz' && j.program !== 'Kelas Lomba' && !j.kategori);
+        } else if (selectedProgram === 'Kelas Lomba') {
+          return j.program === 'Kelas Lomba';
         }
         return true;
       }).sort((a, b) => {
@@ -2848,6 +3142,15 @@ export default function MusyrifDashboard({
                     Pencatatan setoran & rekap santri terpilih yang masuk dalam kategori Kelas Lomba.
                   </p>
                 </div>
+
+                <button
+                  onClick={handleShareWALomba}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer self-start sm:self-auto"
+                  title="Kirim Rekap Santri Lomba ke WhatsApp"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Kirim Rekap Lomba ke WA</span>
+                </button>
               </div>
 
               {/* Stat Summary Cards */}
@@ -3262,18 +3565,28 @@ export default function MusyrifDashboard({
                                       </div>
                                     </td>
                                     <td className="py-3.5 px-4 align-top text-right">
-                                      <div className="space-y-2">
-                                        {sortedLogs.map((log, lIdx) => (
-                                          <div key={log.id} className={`pb-1.5 ${lIdx < sortedLogs.length - 1 ? 'border-b border-slate-150/70' : ''}`}>
-                                            <button
-                                              onClick={() => handleDeleteLog(log.id)}
-                                              className="text-rose-600 hover:text-rose-800 p-1 bg-rose-50 hover:bg-rose-100 rounded-md cursor-pointer transition inline-flex items-center gap-1 text-[10px] font-bold"
-                                              title={`Hapus ${log.kategori || 'setoran'}`}
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          </div>
-                                        ))}
+                                      <div className="flex flex-col items-end gap-1.5">
+                                        <button
+                                          onClick={() => handleShareWASingleStudent(siswa)}
+                                          className="text-emerald-700 hover:text-emerald-900 px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 rounded-md cursor-pointer transition inline-flex items-center gap-1 text-[10px] font-bold border border-emerald-200 shadow-2xs"
+                                          title={`Kirim Rekap ${siswa.nama} ke WA`}
+                                        >
+                                          <Share2 className="w-3 h-3 text-emerald-600" />
+                                          <span>WA</span>
+                                        </button>
+                                        <div className="space-y-1">
+                                          {sortedLogs.map((log) => (
+                                            <div key={log.id}>
+                                              <button
+                                                onClick={() => handleDeleteLog(log.id)}
+                                                className="text-rose-600 hover:text-rose-800 p-1 bg-rose-50 hover:bg-rose-100 rounded-md cursor-pointer transition inline-flex items-center gap-1 text-[10px] font-bold"
+                                                title={`Hapus ${log.kategori || 'setoran'}`}
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
                                     </td>
                                   </tr>
@@ -3289,8 +3602,18 @@ export default function MusyrifDashboard({
                                     <td className="py-3.5 px-4 font-mono font-bold text-slate-400">{index + 1}</td>
                                     <td className="py-3.5 px-4 font-mono text-slate-500">{siswa.noInduk || '-'}</td>
                                     <td className="py-3.5 px-4 font-bold text-slate-900 uppercase">{siswa.nama}</td>
-                                    <td colSpan={4} className="py-3.5 px-4 italic font-semibold text-slate-500">
+                                    <td colSpan={3} className="py-3.5 px-4 italic font-semibold text-slate-500">
                                       {displayStatus}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-right">
+                                      <button
+                                        onClick={() => handleShareWASingleStudent(siswa)}
+                                        className="text-slate-600 hover:text-slate-900 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded-md cursor-pointer transition inline-flex items-center gap-1 text-[10px] font-bold border border-slate-200"
+                                        title={`Kirim Status ${siswa.nama} ke WA`}
+                                      >
+                                        <Share2 className="w-3 h-3 text-slate-500" />
+                                        <span>WA</span>
+                                      </button>
                                     </td>
                                   </tr>
                                 );
@@ -3453,16 +3776,27 @@ export default function MusyrifDashboard({
                         <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">
                           Detail Jurnal Bulanan Siswa
                         </h4>
-                        <button
-                          id="btn-print-monthly"
-                          onClick={handleCetakPDFBulanan}
-                          disabled={studentMonthlyLogs.length === 0}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
-                          title="Cetak Rekap Bulanan ke PDF"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>Cetak PDF Santri</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleShareWABulananSantri}
+                            disabled={studentMonthlyLogs.length === 0}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
+                            title="Kirim Rekap Bulanan Santri ke WA"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            <span>Kirim ke WA</span>
+                          </button>
+                          <button
+                            id="btn-print-monthly"
+                            onClick={handleCetakPDFBulanan}
+                            disabled={studentMonthlyLogs.length === 0}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white font-extrabold text-xs rounded-xl transition shadow-xs cursor-pointer"
+                            title="Cetak Rekap Bulanan ke PDF"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>Cetak PDF Santri</span>
+                          </button>
+                        </div>
                       </div>
 
                       {studentMonthlyLogs.length === 0 ? (
@@ -3511,14 +3845,25 @@ export default function MusyrifDashboard({
                         </p>
                       </div>
 
-                      <button
-                        onClick={handleCetakPDFBulananKelas}
-                        disabled={classMonthlyRecap.length === 0}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer self-start sm:self-auto"
-                      >
-                        <Printer className="w-4 h-4" />
-                        <span>Cetak PDF Rekap Kelas</span>
-                      </button>
+                      <div className="flex flex-col sm:flex-row items-center gap-2 self-start sm:self-auto">
+                        <button
+                          onClick={handleShareWABulananKelas}
+                          disabled={classMonthlyRecap.length === 0}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer"
+                          title="Kirim Rekap Bulanan Kelas ke WhatsApp"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          <span>Kirim ke WA</span>
+                        </button>
+                        <button
+                          onClick={handleCetakPDFBulananKelas}
+                          disabled={classMonthlyRecap.length === 0}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span>Cetak PDF Rekap Kelas</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Quick Stats for the whole class */}
