@@ -3,7 +3,7 @@ import {
    Users, BookOpen, UserCheck, ShieldAlert, Settings, LogOut, Plus, Edit2, Trash2, 
    ChevronRight, ChevronLeft, Database, Save, CheckCircle, Lock, BookMarked, FileText, Printer,
    Calendar, Clock, Camera, Search, RefreshCw, AlertCircle, Upload, Download, FileSpreadsheet, ArrowUpDown,
-   Copy, ExternalLink, Eye, EyeOff, User, Share2
+   Copy, ExternalLink, Eye, EyeOff, User, Share2, AlertTriangle, Layers, GitMerge, CheckCircle2, X
 } from 'lucide-react';
 import logoMinSukoharjo from '../assets/logo_min_sukoharjo.jpg';
 import { 
@@ -19,6 +19,7 @@ import {
   addStudent, 
   updateStudent, 
   deleteStudent, 
+  mergeStudentDuplicates,
   addMusyrif, 
   updateMusyrif, 
   deleteMusyrif, 
@@ -140,6 +141,118 @@ export default function AdminDashboard({
   const [siswaClassSortOrder, setSiswaClassSortOrder] = useState<'asc' | 'desc'>('asc');
   const [siswaCurrentPage, setSiswaCurrentPage] = useState(1);
   const [absenCurrentPage, setAbsenCurrentPage] = useState(1);
+
+  // 10. Student Duplicate Detector States
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateFilterOnly, setDuplicateFilterOnly] = useState(false);
+  const [selectedPrimaryMap, setSelectedPrimaryMap] = useState<Record<string, string>>({});
+
+  // Real-time Student Duplicate Analysis
+  const duplicateAnalysis = useMemo(() => {
+    const journalCountMap = new Map<string, number>();
+    (journals || []).forEach(j => {
+      if (j.siswaId) {
+        journalCountMap.set(j.siswaId, (journalCountMap.get(j.siswaId) || 0) + 1);
+      }
+    });
+
+    const studentsWithCounts = students.map(s => ({
+      ...s,
+      journalCount: journalCountMap.get(s.id) || 0
+    }));
+
+    const noIndukMap = new Map<string, typeof studentsWithCounts>();
+    const namaMap = new Map<string, typeof studentsWithCounts>();
+
+    studentsWithCounts.forEach(s => {
+      const cleanNoInduk = (s.noInduk || '').trim();
+      const cleanNama = (s.nama || '').trim().toLowerCase();
+
+      if (cleanNoInduk && cleanNoInduk !== '-' && cleanNoInduk !== '0') {
+        const list = noIndukMap.get(cleanNoInduk) || [];
+        list.push(s);
+        noIndukMap.set(cleanNoInduk, list);
+      }
+
+      if (cleanNama) {
+        const list = namaMap.get(cleanNama) || [];
+        list.push(s);
+        namaMap.set(cleanNama, list);
+      }
+    });
+
+    interface DupGroup {
+      id: string;
+      type: 'noInduk' | 'nama';
+      key: string;
+      title: string;
+      description: string;
+      students: typeof studentsWithCounts;
+    }
+
+    const groups: DupGroup[] = [];
+    const duplicateStudentIds = new Set<string>();
+
+    // Check No Induk Duplicates
+    noIndukMap.forEach((list, key) => {
+      if (list.length > 1) {
+        groups.push({
+          id: `nis-${key}`,
+          type: 'noInduk',
+          key,
+          title: `No Induk (NIS) Ganda: "${key}"`,
+          description: `Terdapat ${list.length} data siswa dengan nomor induk yang persis sama`,
+          students: list
+        });
+        list.forEach(s => duplicateStudentIds.add(s.id));
+      }
+    });
+
+    // Check Nama Duplicates
+    namaMap.forEach((list, key) => {
+      if (list.length > 1) {
+        const isAlreadyCovered = groups.some(g => 
+          g.type === 'noInduk' && 
+          g.students.length === list.length && 
+          g.students.every(s => list.some(l => l.id === s.id))
+        );
+        if (!isAlreadyCovered) {
+          groups.push({
+            id: `nama-${key}`,
+            type: 'nama',
+            key,
+            title: `Nama Siswa Ganda: "${list[0].nama}"`,
+            description: `Terdapat ${list.length} siswa dengan nama yang serupa/sama (${list.map(s => s.kelasNama || 'Tanpa Kelas').join(', ')})`,
+            students: list
+          });
+          list.forEach(s => duplicateStudentIds.add(s.id));
+        }
+      }
+    });
+
+    return {
+      hasDuplicates: groups.length > 0,
+      groups,
+      totalDuplicateStudents: duplicateStudentIds.size,
+      duplicateStudentIds
+    };
+  }, [students, journals]);
+
+  const handleMergeDuplicates = async (groupId: string, primaryId: string, duplicateIds: string[]) => {
+    const isConfirmed = window.confirm(`Apakah Anda yakin ingin menggabungkan ${duplicateIds.length} data siswa duplikat ke siswa utama? Semua riwayat catatan mutaba'ah (jurnal) dan absensi akan otomatis dialihkan ke siswa utama, dan salinan duplikat akan dihapus secara permanen.`);
+    if (!isConfirmed) return;
+
+    setIsSaving(true);
+    try {
+      const res = await mergeStudentDuplicates(primaryId, duplicateIds);
+      await refreshData();
+      showFeedback(`Berhasil menggabungkan: ${res.deletedCount} data duplikat dibersihkan, ${res.mergedJournals} catatan mutaba'ah & ${res.mergedAbsensi} absensi dialihkan ke siswa utama.`, 'success');
+    } catch (err: any) {
+      showFeedback(`Gagal menggabungkan: ${err.message || 'Terjadi kesalahan sistem'}`, 'danger');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Sync attendance logs when the administrator views the 'absen' tab
   const loadAdminAttendances = async () => {
@@ -2043,6 +2156,10 @@ export default function AdminDashboard({
           {activeTab === 'siswa' && (() => {
             const filteredStudents = students
               .filter(sys => {
+                if (duplicateFilterOnly && !duplicateAnalysis.duplicateStudentIds.has(sys.id)) {
+                  return false;
+                }
+
                 const matchesSearch = sys.nama.toLowerCase().includes(siswaSearch.toLowerCase()) || 
                                       sys.noInduk.toLowerCase().includes(siswaSearch.toLowerCase()) ||
                                       (sys.kelasNama || '').toLowerCase().includes(siswaSearch.toLowerCase());
@@ -2082,6 +2199,26 @@ export default function AdminDashboard({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
+                      onClick={() => setShowDuplicateModal(true)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 border font-bold text-xs rounded-xl transition cursor-pointer shadow-xs ${
+                        duplicateAnalysis.hasDuplicates
+                          ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900 shadow-amber-100/50 ring-2 ring-amber-400/30'
+                          : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-800'
+                      }`}
+                      title="Klik untuk memeriksa & membersihkan data siswa duplikat"
+                    >
+                      {duplicateAnalysis.hasDuplicates ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-bounce" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      )}
+                      <span>
+                        {duplicateAnalysis.hasDuplicates
+                          ? `Duplikat (${duplicateAnalysis.groups.length} Grup)`
+                          : 'Periksa Duplikat'}
+                      </span>
+                    </button>
+                    <button
                       onClick={handleDownloadTemplate}
                       className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-250 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
                     >
@@ -2118,6 +2255,48 @@ export default function AdminDashboard({
                     </button>
                   </div>
                 </div>
+
+                {/* Duplicate Notification Banner if Duplicates Exist */}
+                {duplicateAnalysis.hasDuplicates && (
+                  <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center shrink-0 font-bold">
+                        <AlertTriangle className="w-4 h-4 text-amber-800" />
+                      </div>
+                      <div>
+                        <p className="font-extrabold text-amber-950">
+                          Terdeteksi {duplicateAnalysis.groups.length} kelompok ({duplicateAnalysis.totalDuplicateStudents} data) duplikat pada database siswa!
+                        </p>
+                        <p className="text-amber-800/90 text-[11px]">
+                          Nomor Induk atau Nama Siswa kembar terdeteksi. Anda dapat menggabungkan data atau menghapus salinan dengan aman.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowDuplicateModal(true)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl transition cursor-pointer shadow-xs"
+                      >
+                        Buka Pembersih Duplikat
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDuplicateFilterOnly(prev => !prev);
+                          setSiswaCurrentPage(1);
+                        }}
+                        className={`px-3 py-1.5 border rounded-xl font-bold transition cursor-pointer ${
+                          duplicateFilterOnly
+                            ? 'bg-amber-200 border-amber-300 text-amber-950'
+                            : 'bg-white border-amber-200 text-amber-900 hover:bg-amber-100'
+                        }`}
+                      >
+                        {duplicateFilterOnly ? 'Tampilkan Semua Siswa' : 'Filter Duplikat di Tabel'}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Search & Filter Controls */}
                 <div className="flex flex-col md:flex-row gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 items-center">
@@ -2183,6 +2362,25 @@ export default function AdminDashboard({
                         ))}
                       </select>
                     </div>
+
+                    {duplicateAnalysis.hasDuplicates && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDuplicateFilterOnly(prev => !prev);
+                          setSiswaCurrentPage(1);
+                        }}
+                        className={`px-3 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs shrink-0 ${
+                          duplicateFilterOnly
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100'
+                        }`}
+                        title="Filter hanya menampilkan siswa yang memiliki kesamaan No Induk atau Nama"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{duplicateFilterOnly ? 'Tampilkan Semua Siswa' : `Hanya Duplikat (${duplicateAnalysis.totalDuplicateStudents})`}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2308,8 +2506,27 @@ export default function AdminDashboard({
                                 />
                               </td>
                               <td className="py-3 px-4 font-mono font-bold text-slate-400">{startIndex + idx + 1}</td>
-                              <td className="py-3 px-4 font-mono font-semibold text-slate-800">{sys.noInduk}</td>
-                              <td className="py-3 px-4 font-bold text-slate-900">{sys.nama}</td>
+                              <td className="py-3 px-4 font-mono font-semibold text-slate-800">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{sys.noInduk}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 font-bold text-slate-900">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>{sys.nama}</span>
+                                  {duplicateAnalysis.duplicateStudentIds.has(sys.id) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowDuplicateModal(true)}
+                                      className="px-1.5 py-0.5 bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-900 rounded text-[9px] font-black tracking-tight uppercase inline-flex items-center gap-0.5 cursor-pointer shadow-2xs"
+                                      title="Terdeteksi memiliki data kembar/duplikat. Klik untuk membuka pemeriksa duplikat."
+                                    >
+                                      <AlertTriangle className="w-2.5 h-2.5 text-amber-700 shrink-0" />
+                                      <span>Duplikat</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                               <td className="py-3 px-4">
                                 <div className="flex flex-wrap gap-1">
                                   {sys.isKelasDasar && (
@@ -4167,6 +4384,211 @@ export default function AdminDashboard({
                 </form>
               )}
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 11. MODAL PEMERIKSA & PEMBERSIH DUPLIKAT SISWA */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] shadow-2xl flex flex-col overflow-hidden border border-slate-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold shrink-0">
+                  <GitMerge className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-800">
+                    Pemeriksa & Pembersih Duplikat Data Siswa
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Pendeteksi data siswa ganda berdasarkan No Induk (NIS) atau kemiripan nama
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDuplicateModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-300 text-slate-600 flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50/30">
+              {!duplicateAnalysis.hasDuplicates ? (
+                <div className="py-12 px-4 text-center bg-white rounded-2xl border border-emerald-150 p-8 shadow-xs">
+                  <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </div>
+                  <h4 className="text-lg font-black text-slate-800 mb-1">
+                    Semua Data Siswa Bersih & Valid!
+                  </h4>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Tidak terdeteksi adanya duplikasi No Induk (NIS) maupun nama siswa yang ganda pada database saat ini.
+                  </p>
+                  <div className="mt-6">
+                    <button
+                      type="button"
+                      onClick={() => setShowDuplicateModal(false)}
+                      className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-extrabold rounded-xl transition cursor-pointer"
+                    >
+                      Tutup Jendela
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Alert & Guidance */}
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start gap-3.5 text-xs text-amber-950">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-extrabold">
+                        Terdeteksi {duplicateAnalysis.groups.length} kelompok duplikasi ({duplicateAnalysis.totalDuplicateStudents} record siswa).
+                      </p>
+                      <p className="text-amber-800/90 leading-relaxed text-[11px]">
+                        <strong>Panduan Penggabungan:</strong> Pilih satu data sebagai <strong>Siswa Utama</strong> (yang akan disimpan). Klik tombol <strong>"Gabungkan ke Siswa Utama"</strong> untuk mengalihkan seluruh mutaba'ah jurnal & absensi dari data salinan ke siswa utama, lalu menghapus data ganda secara otomatis.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Duplicate Groups List */}
+                  <div className="space-y-5">
+                    {duplicateAnalysis.groups.map((group, groupIdx) => {
+                      const primaryId = selectedPrimaryMap[group.id] || group.students[0].id;
+                      const duplicateIds = group.students.filter(s => s.id !== primaryId).map(s => s.id);
+                      const primaryStudent = group.students.find(s => s.id === primaryId);
+
+                      return (
+                        <div
+                          key={group.id}
+                          className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-black tracking-wider uppercase">
+                                Grup #{groupIdx + 1}
+                              </span>
+                              <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold ${
+                                group.type === 'noInduk'
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                  : 'bg-amber-100 text-amber-800 border border-amber-200'
+                              }`}>
+                                {group.type === 'noInduk' ? 'NIS Sama' : 'Nama Sama'}
+                              </span>
+                              <h4 className="text-xs font-black text-slate-800">
+                                {group.title}
+                              </h4>
+                            </div>
+                            <span className="text-[11px] font-semibold text-slate-500">
+                              {group.students.length} Data Siswa
+                            </span>
+                          </div>
+
+                          {/* Student Choices Table / Cards */}
+                          <div className="space-y-2">
+                            <p className="text-[11px] font-bold text-slate-600">
+                              Pilih satu data siswa yang dijadikan <strong>Siswa Utama</strong>:
+                            </p>
+                            <div className="grid grid-cols-1 gap-2.5">
+                              {group.students.map((student) => {
+                                const isPrimary = student.id === primaryId;
+                                return (
+                                  <label
+                                    key={student.id}
+                                    onClick={() => setSelectedPrimaryMap(prev => ({ ...prev, [group.id]: student.id }))}
+                                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border transition cursor-pointer ${
+                                      isPrimary
+                                        ? 'bg-emerald-50/70 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+                                        : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="radio"
+                                        name={`primary-choice-${group.id}`}
+                                        checked={isPrimary}
+                                        onChange={() => setSelectedPrimaryMap(prev => ({ ...prev, [group.id]: student.id }))}
+                                        className="text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                                      />
+                                      <div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-extrabold text-xs text-slate-900">
+                                            {student.nama}
+                                          </span>
+                                          <span className="font-mono text-[11px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                            NIS: {student.noInduk || '-'}
+                                          </span>
+                                          {isPrimary ? (
+                                            <span className="px-2 py-0.5 bg-emerald-600 text-white rounded text-[10px] font-black uppercase tracking-tight">
+                                              Siswa Utama
+                                            </span>
+                                          ) : (
+                                            <span className="px-2 py-0.5 bg-rose-100 border border-rose-200 text-rose-700 rounded text-[10px] font-bold">
+                                              Salinan (Akan Dihapus)
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500 flex-wrap">
+                                          <span>Kelas: <strong>{student.kelasNama || 'Belum Ada'}</strong></span>
+                                          <span>•</span>
+                                          <span>Halaqoh: <strong>{student.halaqohNama || 'Belum Ada'}</strong></span>
+                                          <span>•</span>
+                                          <span className="font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded">
+                                            {student.journalCount} Riwayat Jurnal Mutaba'ah
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <span className="text-[10px] font-mono text-slate-400">
+                                        ID: {student.id.slice(0, 8)}...
+                                      </span>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Action for this group */}
+                          <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-150">
+                            <p className="text-[11px] text-slate-600">
+                              Data utama yang dipertahankan: <strong className="text-slate-900">{primaryStudent?.nama}</strong> (Kelas {primaryStudent?.kelasNama || '-'})
+                            </p>
+                            <button
+                              type="button"
+                              disabled={isSaving || duplicateIds.length === 0}
+                              onClick={() => handleMergeDuplicates(group.id, primaryId, duplicateIds)}
+                              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-xs"
+                            >
+                              <GitMerge className="w-3.5 h-3.5 shrink-0" />
+                              <span>Gabungkan ke Siswa Utama</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-500">
+                Total Siswa Terdaftar: <strong>{students.length}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDuplicateModal(false)}
+                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Selesai / Tutup
+              </button>
             </div>
           </div>
         </div>

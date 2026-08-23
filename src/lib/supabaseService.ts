@@ -607,6 +607,100 @@ export async function deleteStudent(id: string): Promise<void> {
   }
 }
 
+export async function mergeStudentDuplicates(
+  primaryStudentId: string,
+  duplicateStudentIds: string[]
+): Promise<{ mergedJournals: number; mergedAbsensi: number; deletedCount: number }> {
+  const primary = memoryStudents.find(s => s.id === primaryStudentId);
+  if (!primary) {
+    throw new Error('Siswa utama tidak ditemukan.');
+  }
+
+  const dupSet = new Set(duplicateStudentIds.filter(id => id !== primaryStudentId));
+  if (dupSet.size === 0) {
+    return { mergedJournals: 0, mergedAbsensi: 0, deletedCount: 0 };
+  }
+
+  // 1. Re-link journals
+  let mergedJournals = 0;
+  memoryJournals = memoryJournals.map(j => {
+    if (dupSet.has(j.siswaId)) {
+      mergedJournals++;
+      return {
+        ...j,
+        siswaId: primary.id,
+        siswaNama: primary.nama,
+        noInduk: primary.noInduk || j.noInduk,
+        kelasNama: primary.kelasNama || j.kelasNama,
+        halaqohId: primary.halaqohId || j.halaqohId
+      };
+    }
+    return j;
+  });
+  saveStoredJournals(memoryJournals);
+
+  // 2. Re-link absensi siswa
+  let mergedAbsensi = 0;
+  memoryAbsenSiswa = memoryAbsenSiswa.map(a => {
+    if (dupSet.has(a.siswaId)) {
+      mergedAbsensi++;
+      return {
+        ...a,
+        siswaId: primary.id,
+        siswaNama: primary.nama,
+        noInduk: primary.noInduk || a.noInduk,
+        kelasNama: primary.kelasNama || a.kelasNama
+      };
+    }
+    return a;
+  });
+  saveStoredAbsenSiswa(memoryAbsenSiswa);
+
+  // 3. Delete duplicate student records
+  const initialStudentCount = memoryStudents.length;
+  memoryStudents = memoryStudents.filter(s => !dupSet.has(s.id));
+  const deletedCount = initialStudentCount - memoryStudents.length;
+  saveStoredStudents(memoryStudents);
+
+  // 4. Update Supabase if configured
+  if (isSupabaseConfigured()) {
+    try {
+      const dupArray = Array.from(dupSet);
+      // Update journals in Supabase
+      await supabase
+        .from('catatan_harian')
+        .update({
+          siswaId: primary.id,
+          siswaNama: primary.nama,
+          noInduk: primary.noInduk || '',
+          kelasNama: primary.kelasNama || ''
+        })
+        .in('siswaId', dupArray);
+
+      // Update absensi in Supabase
+      await supabase
+        .from('absen_siswa')
+        .update({
+          siswaId: primary.id,
+          siswaNama: primary.nama,
+          noInduk: primary.noInduk || '',
+          kelasNama: primary.kelasNama || ''
+        })
+        .in('siswaId', dupArray);
+
+      // Delete duplicate students from Supabase
+      await supabase
+        .from('students')
+        .delete()
+        .in('id', dupArray);
+    } catch (e: any) {
+      console.warn("Supabase mergeStudentDuplicates error:", e);
+    }
+  }
+
+  return { mergedJournals, mergedAbsensi, deletedCount };
+}
+
 export function formatJournalFromDb(j: any): CatatanHarian {
   let kategori = j.kategori;
   let program = j.program;
