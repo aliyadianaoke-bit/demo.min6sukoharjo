@@ -1014,3 +1014,601 @@ export function subscribeToTable(tableName: string, callback: (payload: any) => 
   }
   return () => {};
 }
+
+// ----------------------------------------------------
+// BACKUP & RESTORE UTILITIES
+// ----------------------------------------------------
+
+export interface BackupDataSnapshot {
+  app: string;
+  version: string;
+  exportedAt: string;
+  filterApplied?: {
+    mode: 'all' | 'month' | 'range';
+    label: string;
+    startDate?: string;
+    endDate?: string;
+    month?: string;
+  };
+  meta: {
+    totalClasses: number;
+    totalHalaqoh: number;
+    totalMusyrifs: number;
+    totalStudents: number;
+    totalJournals: number;
+    totalAbsenSiswa: number;
+    totalAbsenMusyrif: number;
+  };
+  data: {
+    classes: Kelas[];
+    halaqohs: Halaqoh[];
+    musyrifs: Musyrif[];
+    students: Siswa[];
+    journals: CatatanHarian[];
+    absenSiswa: AbsenSiswa[];
+    absenMusyrif: AbsenMusyrif[];
+    settings: { adminPassword?: string; musyrifLoginEnabled?: boolean };
+  };
+}
+
+export async function getCompleteBackupSnapshot(filter?: {
+  startDate?: string;
+  endDate?: string;
+  month?: string;
+  filterMode?: 'all' | 'month' | 'range';
+  filterLabel?: string;
+}): Promise<BackupDataSnapshot> {
+  const [
+    curClasses,
+    curHalaqohs,
+    curMusyrifs,
+    curStudents,
+    allJournals,
+    allAbsenSiswa,
+    allAbsenMusyrif,
+    curSettings
+  ] = await Promise.all([
+    getClasses(),
+    getHalaqohs(),
+    getMusyrifs(),
+    getStudents(),
+    getJournals(10000),
+    getAbsenSiswa(undefined, 10000),
+    getAbsenMusyrif(undefined, 10000),
+    getSettings()
+  ]);
+
+  let effectiveStartDate = filter?.startDate;
+  let effectiveEndDate = filter?.endDate;
+
+  if (filter?.month) {
+    const [yearStr, monthStr] = filter.month.split('-');
+    if (yearStr && monthStr) {
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const lastDay = new Date(year, month, 0).getDate();
+      effectiveStartDate = `${filter.month}-01`;
+      effectiveEndDate = `${filter.month}-${lastDay.toString().padStart(2, '0')}`;
+    }
+  }
+
+  let filteredJournals = allJournals;
+  let filteredAbsenSiswa = allAbsenSiswa;
+  let filteredAbsenMusyrif = allAbsenMusyrif;
+
+  if (effectiveStartDate || effectiveEndDate) {
+    if (effectiveStartDate) {
+      filteredJournals = filteredJournals.filter(j => j.tanggal >= effectiveStartDate!);
+      filteredAbsenSiswa = filteredAbsenSiswa.filter(a => a.tanggal >= effectiveStartDate!);
+      filteredAbsenMusyrif = filteredAbsenMusyrif.filter(a => a.tanggal >= effectiveStartDate!);
+    }
+    if (effectiveEndDate) {
+      filteredJournals = filteredJournals.filter(j => j.tanggal <= effectiveEndDate!);
+      filteredAbsenSiswa = filteredAbsenSiswa.filter(a => a.tanggal <= effectiveEndDate!);
+      filteredAbsenMusyrif = filteredAbsenMusyrif.filter(a => a.tanggal <= effectiveEndDate!);
+    }
+  }
+
+  return {
+    app: "Markaz Muhibbil Qur'an - MIN 6 Sukoharjo",
+    version: "3.0",
+    exportedAt: new Date().toISOString(),
+    filterApplied: {
+      mode: filter?.filterMode || (filter?.month ? 'month' : (effectiveStartDate || effectiveEndDate ? 'range' : 'all')),
+      label: filter?.filterLabel || (filter?.month ? `Bulan ${filter.month}` : (effectiveStartDate || effectiveEndDate ? `${effectiveStartDate || 'Awal'} s/d ${effectiveEndDate || 'Akhir'}` : 'Semua Waktu')),
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
+      month: filter?.month
+    },
+    meta: {
+      totalClasses: curClasses.length,
+      totalHalaqoh: curHalaqohs.length,
+      totalMusyrifs: curMusyrifs.length,
+      totalStudents: curStudents.length,
+      totalJournals: filteredJournals.length,
+      totalAbsenSiswa: filteredAbsenSiswa.length,
+      totalAbsenMusyrif: filteredAbsenMusyrif.length
+    },
+    data: {
+      classes: curClasses,
+      halaqohs: curHalaqohs,
+      musyrifs: curMusyrifs,
+      students: curStudents,
+      journals: filteredJournals,
+      absenSiswa: filteredAbsenSiswa,
+      absenMusyrif: filteredAbsenMusyrif,
+      settings: curSettings
+    }
+  };
+}
+
+export async function restoreDatabaseFromBackup(
+  backupSnapshot: BackupDataSnapshot | any,
+  mode: 'merge' | 'replace' = 'replace'
+): Promise<{
+  restoredCount: {
+    classes: number;
+    halaqoh: number;
+    musyrifs: number;
+    students: number;
+    journals: number;
+    absenSiswa: number;
+    absenMusyrif: number;
+  };
+}> {
+  if (!backupSnapshot || (!backupSnapshot.data && !backupSnapshot.students && !backupSnapshot.classes)) {
+    throw new Error('Format file backup tidak valid. Data tidak ditemukan.');
+  }
+
+  const rawData = backupSnapshot.data || backupSnapshot;
+  const backupClasses: Kelas[] = Array.isArray(rawData.classes) ? rawData.classes : [];
+  const backupHalaqohs: Halaqoh[] = Array.isArray(rawData.halaqohs || rawData.halaqoh) ? (rawData.halaqohs || rawData.halaqoh) : [];
+  const backupMusyrifs: Musyrif[] = Array.isArray(rawData.musyrifs || rawData.musyrif) ? (rawData.musyrifs || rawData.musyrif) : [];
+  const backupStudents: Siswa[] = Array.isArray(rawData.students || rawData.siswa) ? (rawData.students || rawData.siswa) : [];
+  const backupJournals: CatatanHarian[] = Array.isArray(rawData.journals || rawData.catatan_harian) ? (rawData.journals || rawData.catatan_harian) : [];
+  const backupAbsenSiswa: AbsenSiswa[] = Array.isArray(rawData.absenSiswa || rawData.absen_siswa) ? (rawData.absenSiswa || rawData.absen_siswa) : [];
+  const backupAbsenMusyrif: AbsenMusyrif[] = Array.isArray(rawData.absenMusyrif || rawData.absen_musyrif) ? (rawData.absenMusyrif || rawData.absen_musyrif) : [];
+  const backupSettings = rawData.settings || {};
+
+  if (mode === 'replace') {
+    // Overwrite in-memory & local storage
+    if (backupClasses.length > 0) memoryClasses = [...backupClasses];
+    if (backupHalaqohs.length > 0) memoryHalaqohs = [...backupHalaqohs];
+    if (backupMusyrifs.length > 0) {
+      memoryMusyrifs = [...backupMusyrifs];
+      saveStoredMusyrifs(memoryMusyrifs);
+    }
+    if (backupStudents.length > 0) {
+      memoryStudents = [...backupStudents];
+      saveStoredStudents(memoryStudents);
+    }
+    memoryJournals = [...backupJournals];
+    saveStoredJournals(memoryJournals);
+
+    memoryAbsenSiswa = [...backupAbsenSiswa];
+    saveStoredAbsenSiswa(memoryAbsenSiswa);
+
+    memoryAbsenMusyrif = [...backupAbsenMusyrif];
+    saveStoredAbsenMusyrif(memoryAbsenMusyrif);
+
+    if (backupSettings && backupSettings.adminPassword) {
+      memorySettings = { ...memorySettings, ...backupSettings };
+    }
+
+    // Sync to Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        // Upsert all data
+        for (const item of backupClasses) await supabase.from('classes').upsert(item);
+        for (const item of backupHalaqohs) await supabase.from('halaqoh').upsert(item);
+        for (const item of backupMusyrifs) await supabase.from('musyrif').upsert(item);
+        for (const item of backupStudents) await supabase.from('students').upsert(item);
+        for (const item of backupJournals) await supabase.from('catatan_harian').upsert(item);
+        for (const item of backupAbsenSiswa) await supabase.from('absen_siswa').upsert(item);
+        for (const item of backupAbsenMusyrif) await supabase.from('absen_musyrif').upsert(item);
+        if (backupSettings && backupSettings.adminPassword) {
+          await supabase.from('settings').upsert({ id: 'admin', ...memorySettings });
+        }
+      } catch (e) {
+        console.warn("Supabase restore sync error:", e);
+      }
+    }
+  } else {
+    // MERGE mode: append or update existing
+    const classMap = new Map(memoryClasses.map(c => [c.id, c]));
+    backupClasses.forEach(c => classMap.set(c.id, c));
+    memoryClasses = Array.from(classMap.values());
+
+    const hqMap = new Map(memoryHalaqohs.map(h => [h.id, h]));
+    backupHalaqohs.forEach(h => hqMap.set(h.id, h));
+    memoryHalaqohs = Array.from(hqMap.values());
+
+    const musMap = new Map(memoryMusyrifs.map(m => [m.id, m]));
+    backupMusyrifs.forEach(m => musMap.set(m.id, m));
+    memoryMusyrifs = Array.from(musMap.values());
+    saveStoredMusyrifs(memoryMusyrifs);
+
+    const sisMap = new Map(memoryStudents.map(s => [s.id, s]));
+    backupStudents.forEach(s => sisMap.set(s.id, s));
+    memoryStudents = Array.from(sisMap.values());
+    saveStoredStudents(memoryStudents);
+
+    const jrnMap = new Map(memoryJournals.map(j => [j.id, j]));
+    backupJournals.forEach(j => jrnMap.set(j.id, j));
+    memoryJournals = Array.from(jrnMap.values());
+    saveStoredJournals(memoryJournals);
+
+    const absSMap = new Map(memoryAbsenSiswa.map(a => [a.id, a]));
+    backupAbsenSiswa.forEach(a => absSMap.set(a.id, a));
+    memoryAbsenSiswa = Array.from(absSMap.values());
+    saveStoredAbsenSiswa(memoryAbsenSiswa);
+
+    const absMMap = new Map(memoryAbsenMusyrif.map(a => [a.id, a]));
+    backupAbsenMusyrif.forEach(a => absMMap.set(a.id, a));
+    memoryAbsenMusyrif = Array.from(absMMap.values());
+    saveStoredAbsenMusyrif(memoryAbsenMusyrif);
+
+    if (isSupabaseConfigured()) {
+      try {
+        for (const item of backupClasses) await supabase.from('classes').upsert(item);
+        for (const item of backupHalaqohs) await supabase.from('halaqoh').upsert(item);
+        for (const item of backupMusyrifs) await supabase.from('musyrif').upsert(item);
+        for (const item of backupStudents) await supabase.from('students').upsert(item);
+        for (const item of backupJournals) await supabase.from('catatan_harian').upsert(item);
+        for (const item of backupAbsenSiswa) await supabase.from('absen_siswa').upsert(item);
+        for (const item of backupAbsenMusyrif) await supabase.from('absen_musyrif').upsert(item);
+      } catch (e) {
+        console.warn("Supabase merge sync error:", e);
+      }
+    }
+  }
+
+  return {
+    restoredCount: {
+      classes: backupClasses.length,
+      halaqoh: backupHalaqohs.length,
+      musyrifs: backupMusyrifs.length,
+      students: backupStudents.length,
+      journals: backupJournals.length,
+      absenSiswa: backupAbsenSiswa.length,
+      absenMusyrif: backupAbsenMusyrif.length
+    }
+  };
+}
+
+// ----------------------------------------------------
+// DATA CLEANUP / BERSIHKAN DATA UTILITIES
+// ----------------------------------------------------
+
+export async function clearAllJournals(filter?: { startDate?: string; endDate?: string; halaqohId?: string; kelasNama?: string }): Promise<number> {
+  let toDeleteIds: string[] = [];
+
+  if (filter && (filter.startDate || filter.endDate || filter.halaqohId || filter.kelasNama)) {
+    const filtered = memoryJournals.filter(j => {
+      if (filter.startDate && j.tanggal < filter.startDate) return false;
+      if (filter.endDate && j.tanggal > filter.endDate) return false;
+      if (filter.halaqohId && filter.halaqohId !== 'all' && j.halaqohId !== filter.halaqohId) return false;
+      if (filter.kelasNama && filter.kelasNama !== 'all' && j.kelasNama !== filter.kelasNama) return false;
+      return true;
+    });
+    toDeleteIds = filtered.map(j => j.id);
+    memoryJournals = memoryJournals.filter(j => !toDeleteIds.includes(j.id));
+  } else {
+    toDeleteIds = memoryJournals.map(j => j.id);
+    memoryJournals = [];
+  }
+
+  saveStoredJournals(memoryJournals);
+
+  if (isSupabaseConfigured()) {
+    try {
+      if (toDeleteIds.length > 0) {
+        // Chunk deletions if too many
+        for (let i = 0; i < toDeleteIds.length; i += 200) {
+          const chunk = toDeleteIds.slice(i, i + 200);
+          await supabase.from('catatan_harian').delete().in('id', chunk);
+        }
+      } else if (!filter || Object.keys(filter).length === 0) {
+        await supabase.from('catatan_harian').delete().neq('id', '___DUMMY___');
+      }
+    } catch (e) {
+      console.warn("Supabase clearAllJournals error:", e);
+    }
+  }
+
+  return toDeleteIds.length;
+}
+
+export async function clearAllAbsenSiswa(filter?: { startDate?: string; endDate?: string; kelasId?: string }): Promise<number> {
+  let toDeleteIds: string[] = [];
+
+  if (filter && (filter.startDate || filter.endDate || filter.kelasId)) {
+    const filtered = memoryAbsenSiswa.filter(a => {
+      if (filter.startDate && a.tanggal < filter.startDate) return false;
+      if (filter.endDate && a.tanggal > filter.endDate) return false;
+      if (filter.kelasId && filter.kelasId !== 'all' && a.kelasId !== filter.kelasId) return false;
+      return true;
+    });
+    toDeleteIds = filtered.map(a => a.id);
+    memoryAbsenSiswa = memoryAbsenSiswa.filter(a => !toDeleteIds.includes(a.id));
+  } else {
+    toDeleteIds = memoryAbsenSiswa.map(a => a.id);
+    memoryAbsenSiswa = [];
+  }
+
+  saveStoredAbsenSiswa(memoryAbsenSiswa);
+
+  if (isSupabaseConfigured()) {
+    try {
+      if (toDeleteIds.length > 0) {
+        for (let i = 0; i < toDeleteIds.length; i += 200) {
+          const chunk = toDeleteIds.slice(i, i + 200);
+          await supabase.from('absen_siswa').delete().in('id', chunk);
+        }
+      } else {
+        await supabase.from('absen_siswa').delete().neq('id', '___DUMMY___');
+      }
+    } catch (e) {
+      console.warn("Supabase clearAllAbsenSiswa error:", e);
+    }
+  }
+
+  return toDeleteIds.length;
+}
+
+export async function clearAllAbsenMusyrif(filter?: { startDate?: string; endDate?: string; musyrifId?: string }): Promise<number> {
+  let toDeleteIds: string[] = [];
+
+  if (filter && (filter.startDate || filter.endDate || filter.musyrifId)) {
+    const filtered = memoryAbsenMusyrif.filter(a => {
+      if (filter.startDate && a.tanggal < filter.startDate) return false;
+      if (filter.endDate && a.tanggal > filter.endDate) return false;
+      if (filter.musyrifId && filter.musyrifId !== 'all' && a.musyrifId !== filter.musyrifId) return false;
+      return true;
+    });
+    toDeleteIds = filtered.map(a => a.id);
+    memoryAbsenMusyrif = memoryAbsenMusyrif.filter(a => !toDeleteIds.includes(a.id));
+  } else {
+    toDeleteIds = memoryAbsenMusyrif.map(a => a.id);
+    memoryAbsenMusyrif = [];
+  }
+
+  saveStoredAbsenMusyrif(memoryAbsenMusyrif);
+
+  if (isSupabaseConfigured()) {
+    try {
+      if (toDeleteIds.length > 0) {
+        for (let i = 0; i < toDeleteIds.length; i += 200) {
+          const chunk = toDeleteIds.slice(i, i + 200);
+          await supabase.from('absen_musyrif').delete().in('id', chunk);
+        }
+      } else {
+        await supabase.from('absen_musyrif').delete().neq('id', '___DUMMY___');
+      }
+    } catch (e) {
+      console.warn("Supabase clearAllAbsenMusyrif error:", e);
+    }
+  }
+
+  return toDeleteIds.length;
+}
+
+export async function clearTransactionalLogs(options: {
+  clearJournals?: boolean;
+  clearAbsenSiswa?: boolean;
+  clearAbsenMusyrif?: boolean;
+  startDate?: string;
+  endDate?: string;
+  month?: string;
+}): Promise<{ deletedJournals: number; deletedAbsenSiswa: number; deletedAbsenMusyrif: number }> {
+  let effectiveStartDate = options.startDate;
+  let effectiveEndDate = options.endDate;
+
+  if (options.month) {
+    const [yearStr, monthStr] = options.month.split('-');
+    if (yearStr && monthStr) {
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const lastDay = new Date(year, month, 0).getDate();
+      effectiveStartDate = `${options.month}-01`;
+      effectiveEndDate = `${options.month}-${lastDay.toString().padStart(2, '0')}`;
+    }
+  }
+
+  let deletedJournals = 0;
+  let deletedAbsenSiswa = 0;
+  let deletedAbsenMusyrif = 0;
+
+  const filter = (effectiveStartDate || effectiveEndDate) ? {
+    startDate: effectiveStartDate,
+    endDate: effectiveEndDate
+  } : undefined;
+
+  if (options.clearJournals) {
+    deletedJournals = await clearAllJournals(filter);
+  }
+  if (options.clearAbsenSiswa) {
+    deletedAbsenSiswa = await clearAllAbsenSiswa(filter);
+  }
+  if (options.clearAbsenMusyrif) {
+    deletedAbsenMusyrif = await clearAllAbsenMusyrif(filter);
+  }
+
+  return { deletedJournals, deletedAbsenSiswa, deletedAbsenMusyrif };
+}
+
+export async function resetAllStudentsHalaqoh(): Promise<number> {
+  const count = memoryStudents.length;
+  memoryStudents = memoryStudents.map(s => ({
+    ...s,
+    halaqohId: '',
+    halaqohNama: 'Belum Ada Halaqoh'
+  }));
+  saveStoredStudents(memoryStudents);
+
+  if (isSupabaseConfigured()) {
+    try {
+      for (const s of memoryStudents) {
+        await supabase.from('students').update({ halaqohId: '', halaqohNama: 'Belum Ada Halaqoh' }).eq('id', s.id);
+      }
+    } catch (e) {
+      console.warn("Supabase resetAllStudentsHalaqoh error:", e);
+    }
+  }
+
+  return count;
+}
+
+export async function clearMasterStudents(): Promise<number> {
+  const count = memoryStudents.length;
+  const ids = memoryStudents.map(s => s.id);
+  memoryStudents = [];
+  saveStoredStudents(memoryStudents);
+
+  if (isSupabaseConfigured()) {
+    try {
+      if (ids.length > 0) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          await supabase.from('students').delete().in('id', chunk);
+        }
+      } else {
+        await supabase.from('students').delete().neq('id', '___DUMMY___');
+      }
+    } catch (e) {
+      console.warn("Supabase clearMasterStudents error:", e);
+    }
+  }
+
+  return count;
+}
+
+export async function clearMasterMusyrifs(): Promise<number> {
+  const count = memoryMusyrifs.length;
+  const ids = memoryMusyrifs.map(m => m.id);
+  memoryMusyrifs = [];
+  saveStoredMusyrifs(memoryMusyrifs);
+
+  if (isSupabaseConfigured()) {
+    try {
+      if (ids.length > 0) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          await supabase.from('musyrif').delete().in('id', chunk);
+        }
+      } else {
+        await supabase.from('musyrif').delete().neq('id', '___DUMMY___');
+      }
+    } catch (e) {
+      console.warn("Supabase clearMasterMusyrifs error:", e);
+    }
+  }
+
+  return count;
+}
+
+export async function clearMasterHalaqohs(): Promise<number> {
+  const count = memoryHalaqohs.length;
+  const ids = memoryHalaqohs.map(h => h.id);
+  memoryHalaqohs = [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      if (ids.length > 0) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          await supabase.from('halaqoh').delete().in('id', chunk);
+        }
+      } else {
+        await supabase.from('halaqoh').delete().neq('id', '___DUMMY___');
+      }
+    } catch (e) {
+      console.warn("Supabase clearMasterHalaqohs error:", e);
+    }
+  }
+
+  return count;
+}
+
+export async function clearMasterClasses(): Promise<number> {
+  const count = memoryClasses.length;
+  const ids = memoryClasses.map(c => c.id);
+  memoryClasses = [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      if (ids.length > 0) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          await supabase.from('classes').delete().in('id', chunk);
+        }
+      } else {
+        await supabase.from('classes').delete().neq('id', '___DUMMY___');
+      }
+    } catch (e) {
+      console.warn("Supabase clearMasterClasses error:", e);
+    }
+  }
+
+  return count;
+}
+
+export async function factoryResetAllDatabase(): Promise<void> {
+  // Clear all memory & local storage
+  memoryClasses = [
+    { id: 'kls-1', nama: 'Kelas 1A' },
+    { id: 'kls-2', nama: 'Kelas 2B' },
+    { id: 'kls-3', nama: 'Kelas 3A' },
+    { id: 'kls-4', nama: 'Kelas 4A' },
+    { id: 'kls-5', nama: 'Kelas 5B' },
+    { id: 'kls-6', nama: 'Kelas 6A' }
+  ];
+  memoryHalaqohs = [
+    { id: 'hq-1', nama: 'Halaqoh Al-Kahfi', musyrifId: 'usr-1', musyrifNama: 'Ahmad Muzakki, S.Pd.' },
+    { id: 'hq-2', nama: 'Halaqoh An-Nur', musyrifId: 'usr-2', musyrifNama: 'Umar Al-Faruq' },
+    { id: 'hq-3', nama: 'Halaqoh At-Tin', musyrifId: '', musyrifNama: 'Belum Ditentukan' }
+  ];
+  memoryMusyrifs = [
+    { id: 'usr-1', nim: '202601001', nama: 'Ahmad Muzakki, S.Pd.', username: 'ahmad', password: 'password123', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isMengajarLomba: true },
+    { id: 'usr-2', nim: '202601002', nama: 'Umar Al-Faruq', username: 'umar', password: 'password123', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur' }
+  ];
+  memoryStudents = [
+    { id: 'sis-1', noInduk: '1001', nama: 'Abdurrahman Wahid', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isKelasDasar: true, isKelasTahfidz: true },
+    { id: 'sis-2', noInduk: '1002', nama: 'Aisyah Humaira', kelasId: 'kls-1', kelasNama: 'Kelas 1A', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isKelasDasar: true },
+    { id: 'sis-3', noInduk: '1003', nama: 'Muhammad Bilal', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-1', halaqohNama: 'Halaqoh Al-Kahfi', isKelasLomba: true },
+    { id: 'sis-4', noInduk: '1004', nama: 'Fathimah Az-Zahra', kelasId: 'kls-2', kelasNama: 'Kelas 2B', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur', isKelasTahfidz: true },
+    { id: 'sis-5', noInduk: '1005', nama: 'Yusuf Al-Banjari', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-2', halaqohNama: 'Halaqoh An-Nur', isKelasLomba: true },
+    { id: 'sis-6', noInduk: '1006', nama: 'Khadijah Al-Kubra', kelasId: 'kls-3', kelasNama: 'Kelas 3A', halaqohId: 'hq-3', halaqohNama: 'Halaqoh At-Tin' }
+  ];
+  memoryJournals = [];
+  memoryAbsenSiswa = [];
+  memoryAbsenMusyrif = [];
+  memorySettings = { adminPassword: 'admin123', musyrifLoginEnabled: true };
+
+  saveStoredMusyrifs(memoryMusyrifs);
+  saveStoredStudents(memoryStudents);
+  saveStoredJournals(memoryJournals);
+  saveStoredAbsenSiswa(memoryAbsenSiswa);
+  saveStoredAbsenMusyrif(memoryAbsenMusyrif);
+
+  if (isSupabaseConfigured()) {
+    try {
+      await supabase.from('catatan_harian').delete().neq('id', '___DUMMY___');
+      await supabase.from('absen_siswa').delete().neq('id', '___DUMMY___');
+      await supabase.from('absen_musyrif').delete().neq('id', '___DUMMY___');
+      await supabase.from('students').delete().neq('id', '___DUMMY___');
+      await supabase.from('musyrif').delete().neq('id', '___DUMMY___');
+      await supabase.from('halaqoh').delete().neq('id', '___DUMMY___');
+      await supabase.from('classes').delete().neq('id', '___DUMMY___');
+
+      for (const item of memoryClasses) await supabase.from('classes').upsert(item);
+      for (const item of memoryHalaqohs) await supabase.from('halaqoh').upsert(item);
+      for (const item of memoryMusyrifs) await supabase.from('musyrif').upsert(item);
+      for (const item of memoryStudents) await supabase.from('students').upsert(item);
+      await supabase.from('settings').upsert({ id: 'admin', ...memorySettings });
+    } catch (e) {
+      console.warn("Supabase factoryResetAllDatabase error:", e);
+    }
+  }
+}
+

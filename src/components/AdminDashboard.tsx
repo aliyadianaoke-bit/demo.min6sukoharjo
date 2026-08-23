@@ -27,6 +27,7 @@ import {
 } from '../lib/supabaseService';
 import { Kelas, Halaqoh, Siswa, Musyrif, CatatanHarian, AbsenMusyrif } from '../types';
 import { isMusyrifAutoOff14 } from '../utils';
+import AdminBackupCleanTab from './AdminBackupCleanTab';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -53,7 +54,7 @@ export default function AdminDashboard({
   musyrifAttendances = [],
   refreshData
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan' | 'absen'>('kelas');
+  const [activeTab, setActiveTab] = useState<'kelas' | 'siswa' | 'pengajar' | 'halaqoh' | 'laporan' | 'pengaturan' | 'absen' | 'backup'>('kelas');
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState({ text: '', type: 'success' });
 
@@ -1876,7 +1877,8 @@ export default function AdminDashboard({
             { id: 'halaqoh', label: 'Halaqoh', icon: BookMarked },
             { id: 'absen', label: 'Absen', icon: Calendar },
             { id: 'laporan', label: 'Laporan', icon: FileText },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings }
+            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
+            { id: 'backup', label: 'Backup & Bersihkan', icon: Database }
           ].map(tab => {
             const IconComp = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1912,7 +1914,8 @@ export default function AdminDashboard({
               { id: 'halaqoh', label: 'Data Halaqoh', icon: BookMarked },
               { id: 'absen', label: 'Kelola Absen', icon: Calendar },
               { id: 'laporan', label: 'Laporan Tahfidz', icon: FileText },
-              { id: 'pengaturan', label: 'Pengaturan', icon: Settings }
+              { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
+              { id: 'backup', label: 'Backup & Bersihkan Data', icon: Database }
             ].map(tab => {
               const IconComp = tab.icon;
               return (
@@ -3529,7 +3532,44 @@ export default function AdminDashboard({
                   </form>
                 </div>
               </div>
+
+              {/* Shortcut Card to Backup & Clear Data */}
+              <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-100 text-emerald-800 rounded-xl">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800">Pusat Backup & Pembersihan Data</h4>
+                    <p className="text-[11px] text-slate-500">Cadangkan seluruh snapshot database (JSON/CSV) atau lakukan pembersihan berkala.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('backup')}
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shrink-0 flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Buka Menu Backup</span>
+                </button>
+              </div>
+
             </div>
+          )}
+
+          {/* TAB: BACKUP & BERSIHKAN DATA */}
+          {activeTab === 'backup' && (
+            <AdminBackupCleanTab
+              classes={classes}
+              students={students}
+              musyrifs={musyrifs}
+              halaqohs={halaqohs}
+              journals={journals}
+              musyrifAttendances={musyrifAttendances}
+              adminPass={adminPass}
+              refreshData={refreshData}
+              setFeedbackMsg={setFeedbackMsg}
+            />
           )}
 
         </div>
